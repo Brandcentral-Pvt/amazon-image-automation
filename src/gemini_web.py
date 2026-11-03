@@ -534,58 +534,45 @@ class GeminiWeb:
 
     # ------------------------------------------------------------- batch session
     def begin_batch(self, master: str = "", reference_images: list = None) -> None:
-        """Open ONE chat for the whole ASIN batch and seed it with the AIIE master.
+        """Open ONE chat for the whole ASIN batch and set up image generation mode.
 
         STRICT SEQUENCE (enforced):
         1. Open new chat
         2. Upload base/reference images FIRST
-        3. Select "Create image" 
+        3. Open model picker and select "Create image"
         4. Set aspect ratio to 3:4
-        5. Send AIIE master message (if provided)
-
-        Runs exactly once per ASIN - never per image. Every slot prompt is then
-        delivered into this same chat, so product, model, lighting and colour
-        grading stay consistent across all 8 panels.
+        (No master prompt - slot prompts carry all instructions)
         """
         self._active_master = (master or "").strip()   # remembered for retry restarts
         self.new_chat()
         self._pending_dest = None       # the master seed is not a slot download
         self._handled_download = None
 
-        # STEP 2: Upload base/reference images FIRST (before any model selection)
+        # STEP 1: Upload base/reference images FIRST
         if reference_images:
-            log.info("uploading %d base/reference images before model selection", len(reference_images))
+            log.info("uploading %d base/reference images", len(reference_images))
             self.upload_images(reference_images)
             self._refs_attached = True
         else:
             log.warning("no reference images provided to begin_batch")
 
-        # STEP 3: Select "Create image" 
+        # STEP 2: Open model picker and select "Create image" 
         if self.cfg.get("gemini.ensure_image_model", False):
-            log.info("selecting 'Create image' mode")
-            if not self.ensure_image_model():
+            log.info("selecting 'Create image' mode via model picker")
+            if not self._pick_image_model():
                 log.warning("failed to select 'Create image' mode - proceeding anyway")
 
-        # STEP 4: Set aspect ratio to 3:4
+        # STEP 3: Set aspect ratio to 3:4 (done inside _pick_image_model, but ensure)
         ratio = str(self.cfg.get("gemini.aspect_ratio", "") or "").strip()
         if ratio:
-            log.info("setting aspect ratio to %s", ratio)
+            log.info("ensuring aspect ratio is %s", ratio)
             self._set_aspect_ratio_ui()
 
-        # STEP 5: Send AIIE master message
-        self._pending_dest = None       # the master seed is not a slot download
-        self._handled_download = None
-        if not self._active_master:
-            return
-        if not self.cfg.get("gemini.send_master_prompt", True):
-            log.info("send_master_prompt disabled - batch chat opened without session rules")
-            return
-        self.send_prompt(self._active_master)
-        self._wait_for_reply(text_ok=True)
-        log.info("batch chat seeded with the AIIE master message (strict sequence complete)")
+        # NO master prompt - slot prompts carry all instructions
+        log.info("batch chat ready for image generation (strict sequence complete)")
 
     def restart_batch(self, reference_images: list = None) -> None:
-        """Recovery path: open a FRESH chat and re-seed the AIIE master message.
+        """Recovery path: open a FRESH chat and re-setup image generation mode.
 
         Used when a slot fails and pipeline retries it - retrying inside a chat
         that already contains a broken/refused reply drags quality down, so the
@@ -594,11 +581,11 @@ class GeminiWeb:
         Follows the same STRICT SEQUENCE as begin_batch:
         1. New chat
         2. Upload reference images
-        3. Select "Create image"
+        3. Open model picker and select "Create image"
         4. Set aspect ratio 3:4
-        5. Send master message
+        (No master prompt)
         """
-        log.info("restarting batch chat (fresh session + re-seeded master)")
+        log.info("restarting batch chat (fresh session + re-setup image mode)")
         self.begin_batch(self._active_master, reference_images=reference_images)
 
     def _wait_for_reply(self, text_ok: bool = False) -> bool:

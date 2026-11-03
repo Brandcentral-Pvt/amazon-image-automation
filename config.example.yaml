@@ -82,8 +82,8 @@ gemini:
   slot_retries: 2
   slot_retry_delay_sec: [10, 20]
   new_chat_per_slot: false     # ONE continuous chat per ASIN batch (consistency)
-  send_master_prompt: true     # send the AIIE master_rules as the first message
-  master_ack_timeout_sec: 150  # wait for Gemini's reply to the master message
+  send_master_prompt: false     # disabled - slot prompts carry all instructions
+  master_ack_timeout_sec: 150  # (unused)
   # seconds to wait for one generation before giving up
   generation_timeout_sec: 180
   upload_wait_sec: 8
