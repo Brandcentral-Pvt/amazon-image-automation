@@ -147,10 +147,10 @@ def main() -> int:
             self.calls = 0
             self.restarts = 0
 
-        def begin_batch(self, master: str = "") -> None:
+        def begin_batch(self, master: str = "", reference_images: list = None) -> None:
             pass
 
-        def restart_batch(self) -> None:
+        def restart_batch(self, reference_images: list = None) -> None:
             self.restarts += 1
 
         def generate_image(self, prompt, reference_images, dest, strategy="auto",

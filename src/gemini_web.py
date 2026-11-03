@@ -175,8 +175,7 @@ class GeminiWeb:
         self._cool_down_on_block()
         self._dismiss_overlays()
         self._assert_logged_in()
-        if self.cfg.get("gemini.ensure_image_model", False):
-            self.ensure_image_model()
+        # Do NOT select create image/aspect ratio here - will do in begin_batch after upload
 
     def close(self) -> None:
         try:
@@ -534,8 +533,15 @@ class GeminiWeb:
         return False
 
     # ------------------------------------------------------------- batch session
-    def begin_batch(self, master: str = "") -> None:
+    def begin_batch(self, master: str = "", reference_images: list = None) -> None:
         """Open ONE chat for the whole ASIN batch and seed it with the AIIE master.
+
+        STRICT SEQUENCE (enforced):
+        1. Open new chat
+        2. Upload base/reference images FIRST
+        3. Select "Create image" 
+        4. Set aspect ratio to 3:4
+        5. Send AIIE master message (if provided)
 
         Runs exactly once per ASIN - never per image. Every slot prompt is then
         delivered into this same chat, so product, model, lighting and colour
@@ -545,24 +551,55 @@ class GeminiWeb:
         self.new_chat()
         self._pending_dest = None       # the master seed is not a slot download
         self._handled_download = None
+
+        # STEP 2: Upload base/reference images FIRST (before any model selection)
+        if reference_images:
+            log.info("uploading %d base/reference images before model selection", len(reference_images))
+            self.upload_images(reference_images)
+            self._refs_attached = True
+        else:
+            log.warning("no reference images provided to begin_batch")
+
+        # STEP 3: Select "Create image" 
+        if self.cfg.get("gemini.ensure_image_model", False):
+            log.info("selecting 'Create image' mode")
+            if not self.ensure_image_model():
+                log.warning("failed to select 'Create image' mode - proceeding anyway")
+
+        # STEP 4: Set aspect ratio to 3:4
+        ratio = str(self.cfg.get("gemini.aspect_ratio", "") or "").strip()
+        if ratio:
+            log.info("setting aspect ratio to %s", ratio)
+            self._set_aspect_ratio_ui()
+
+        # STEP 5: Send AIIE master message
+        self._pending_dest = None       # the master seed is not a slot download
+        self._handled_download = None
         if not self._active_master:
             return
         if not self.cfg.get("gemini.send_master_prompt", True):
             log.info("send_master_prompt disabled - batch chat opened without session rules")
             return
-        self.send_prompt(master)
+        self.send_prompt(self._active_master)
         self._wait_for_reply(text_ok=True)
-        log.info("batch chat seeded with the AIIE master message")
+        log.info("batch chat seeded with the AIIE master message (strict sequence complete)")
 
-    def restart_batch(self) -> None:
+    def restart_batch(self, reference_images: list = None) -> None:
         """Recovery path: open a FRESH chat and re-seed the AIIE master message.
 
         Used when a slot fails and pipeline retries it - retrying inside a chat
         that already contains a broken/refused reply drags quality down, so the
         retry gets a clean session with a fresh upload of the references.
+
+        Follows the same STRICT SEQUENCE as begin_batch:
+        1. New chat
+        2. Upload reference images
+        3. Select "Create image"
+        4. Set aspect ratio 3:4
+        5. Send master message
         """
         log.info("restarting batch chat (fresh session + re-seeded master)")
-        self.begin_batch(self._active_master)
+        self.begin_batch(self._active_master, reference_images=reference_images)
 
     def _wait_for_reply(self, text_ok: bool = False) -> bool:
         """Wait until Gemini finished replying to the last submitted message.
