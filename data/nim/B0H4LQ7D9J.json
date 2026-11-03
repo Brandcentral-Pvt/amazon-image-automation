@@ -1,0 +1,21 @@
+{
+  "product_category": "apparel",
+  "product_type": "Cotton Co-ord Set (Top & Plazo Pant)",
+  "audience": "Women",
+  "age_group": "Adult (18-35)",
+  "fashion_segment": "Western",
+  "model_required": true,
+  "model_card": "Indian woman, mid-20s, warm medium skin tone, shoulder-length black hair worn loose with a natural wave, minimal makeup, relaxed confident smile. Dressed only in the ROYALICA co-ord set; no distracting accessories.",
+  "background_family": "Contemporary urban Indian home interior — airy living room with neutral walls, sheer curtains, light wood furniture, and a potted monstera; soft morning light from a large window.",
+  "slot_direction": {
+    "01_hero_white": "Front-facing full-length shot on pure white; model standing naturally, weight on one leg, top and plazo pant clearly visible. Clean clipping path ready.",
+    "02_back_view": "Rear full-length on same white background; shows back neckline, back waist detail, and plazo pant drape. Model turned 180°, head slightly over shoulder.",
+    "03_side_view": "Right-side profile on white; highlights side slit of top, pocket line, and wide-leg flow of plazo. Arm relaxed at side.",
+    "04_craft_story": "Close-up macro shots: fabric texture (cotton weave), stitching at shoulder seam, hem finish, waistband elastic detail, and any printed/embroidered motif if present. Neutral grey card background.",
+    "05_lifestyle": "Model seated on a low cotton sofa in the living-room set, legs crossed, holding a ceramic chai cup; candid laugh. Environment shows aspirational yet attainable Indian urban morning.",
+    "06_styling_lookbook": "Model standing by the window, co-ord paired with white leather sneakers, a minimal silver watch, and a canvas tote — casual brunch look. Full-length, relaxed posture.",
+    "07_usp_infographic": "Three icon blocks on white: 1) 100% Cotton — breathable & skin-friendly. 2) Machine-wash cold, tumble low — easy care. 3) Made in India — supports local artisans. Verified from product specs.",
+    "08_product_guide": "Size & Fit Guide only. Headings: Bust (cm), Waist (cm), Hip (cm), Top Length (cm), Pant Length (cm), Model Stats (Height 165 cm, wearing Size M). No care or fabric guide needed."
+  },
+  "source": "nim"
+}

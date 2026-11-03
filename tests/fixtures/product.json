@@ -1,0 +1,39 @@
+{
+  "asin": "B0DEMO1234",
+  "domain": "amazon.in",
+  "url": "https://www.amazon.in/dp/B0DEMO1234",
+  "title": "AquaPeak Insulated Stainless Steel Water Bottle 1 Litre, 24 Hrs Cold / 12 Hrs Hot, Leak-Proof Wide Mouth Flask with Carry Loop - Matte Charcoal",
+  "brand": "Visit the AquaPeak Store",
+  "category": "Home & Kitchen > Drinkware > Bottles > Insulated Bottles",
+  "price": "₹1,299.00",
+  "rating": "4.4 out of 5 stars",
+  "reviews": "12,481 ratings",
+  "availability": "In stock",
+  "bullets": [
+    "18/8 food-grade stainless steel with double-wall vacuum insulation keeps drinks cold for 24 hours and hot for 12 hours",
+    "BPA-free leak-proof lid with silicone gasket and one-hand flip cap",
+    "Wide 5.5 cm mouth fits ice cubes and makes cleaning easy",
+    "Matte powder-coated sweat-free exterior with a soft carry loop",
+    "Bottle weighs 340 g and fits standard car cup holders and gym bottle pockets",
+    "Pack includes bottle, flip lid, spare gasket and cleaning brush"
+  ],
+  "attributes": {
+    "Capacity": "1 Litre",
+    "Material": "Stainless Steel",
+    "Colour": "Matte Charcoal",
+    "Item Dimensions LxWxH": "8.5 x 8.5 x 28 Centimeters",
+    "Item Weight": "340 g",
+    "Insulation": "Double Wall Vacuum",
+    "Lid Type": "Flip Top",
+    "Dishwasher Safe": "Yes (bottle body only)"
+  },
+  "variants": ["Matte Charcoal", "Ocean Blue", "Sage Green"],
+  "aplus_text": "",
+  "image_urls": [
+    "https://m.media-amazon.com/images/I/71exampleA._AC_SL1500_.jpg",
+    "https://m.media-amazon.com/images/I/71exampleB._AC_SL1500_.jpg"
+  ],
+  "scraped_at": "2026-10-30T10:00:00",
+  "scrape_status": "ok",
+  "scrape_error": ""
+}

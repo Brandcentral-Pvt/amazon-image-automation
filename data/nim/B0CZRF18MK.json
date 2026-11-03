@@ -1,0 +1,21 @@
+{
+  "product_category": "apparel",
+  "product_type": "High-Waisted Trousers",
+  "audience": "Women",
+  "age_group": "Adult (18-35)",
+  "fashion_segment": "Western",
+  "model_required": true,
+  "model_card": "Indian woman, mid-20s, warm medium skin tone, shoulder-length dark hair with soft natural waves, minimal dewy makeup, confident relaxed posture, wearing the trousers as hero piece with a simple tucked-in top",
+  "background_family": "Clean modern studio with neutral concrete floors and soft grey seamless walls; warm diffused daylight from large off-camera windows; minimal props — a single wooden stool and a folded cotton throw for texture",
+  "slot_direction": {
+    "01_hero_white": "Full-length front view on pure white, model standing weight on one leg, waistband and high-rise fit clearly visible, hem grazing ankle, even lighting no shadows",
+    "02_back_view": "Full-length rear view same stance, shows back pockets, yoke seam, and straight-leg silhouette, white background",
+    "03_side_view": "Right-side profile, slight 30° turn, highlights high waist, side pocket line, and clean drape from hip to hem",
+    "04_craft_story": "Close-up cluster: waistband interior stitching and brand label, pocket bag fabric, hem finish, and fabric weave texture — all shot on 45° angled white surface with soft side light",
+    "05_lifestyle": "Model seated on wooden stool in studio corner, legs crossed casually, natural laugh, trousers crease naturally at knee — aspirational everyday office-to-café moment",
+    "06_styling_lookbook": "Trousers paired with white cotton button-down (sleeves rolled) and white leather loafers; accessories: thin gold watch and structured tote — crisp smart-casual look",
+    "07_usp_infographic": "Three icon blocks on pastel gradient: \"High-Waisted Fit\" (silhouette icon), \"Lightweight 350 g\" (feather icon), \"Made in India\" (flag icon) — verified from specs only",
+    "08_product_guide": "Size & Fit Guide: waist & hip measurement chart (cm/in), inseam length, model stats (height 165 cm wearing size M), care icons — machine wash cold, tumble low, iron medium"
+  },
+  "source": "nim"
+}

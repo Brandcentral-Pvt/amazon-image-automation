@@ -1,0 +1,239 @@
+# =====================================================================
+#  The 8-slot Amazon image bundle
+#  Each slot = one generated image. Edit copy here, no code changes needed.
+#  Placeholders available inside templates:
+#    {title} {brand} {category} {bullets} {attributes} {variant_note}
+#    {image_count} {size} {extra_notes}
+# =====================================================================
+
+global_rules: |
+  STRICT COMPLIANCE RULES (violating any of these makes the image unusable):
+  - The product must be rendered exactly as it appears in the attached reference photos.
+    Do NOT redesign, restyle, recolour, resize proportions, or invent parts, ports,
+    buttons, textures or accessories that are not visible in the references.
+  - Preserve the real label, packaging artwork and printed text of the product exactly
+    as photographed. Never invent or hallucinate brand names, certifications or text.
+  - No Amazon badges, no "Best Seller", "Amazon's Choice", "#1", "Sale", "%OFF",
+    price tags, discount banners, review stars, award ribbons or guarantee seals.
+  - No watermarks, no stock-photo watermarks, no UI chrome, no borders or frames
+    around the canvas.
+  - No competitor products, no brand logos of other companies.
+  - No medical, health, safety or performance claims that are not in the listing bullets.
+  - Photorealistic commercial product photography. Clean, sharp, colour-accurate sRGB.
+  - Square 1:1 canvas, {size} x {size} px, generous safe margins, no text touching edges.
+  - Text (where a slot allows it) must be short, clean, sans-serif, perfectly spelled,
+    high contrast and legible at mobile thumbnail size. Maximum 8 words per label.
+
+slots:
+  - id: "01_main_white"
+    order: 1
+    title: "Main image - pure white background"
+    allowed_text: false
+    file: "01_main_white.png"
+    intent: "Amazon main/hero image. Must pass main-image policy: pure white bg, product ~85% of frame."
+    template: |
+      Create the PRIMARY AMAZON LISTING IMAGE for this product.
+
+      PRODUCT: {title}
+      BRAND: {brand}
+      CATEGORY: {category}
+
+      DIRECTION:
+      - Single hero shot of the exact product from the reference images, centred,
+        filling about 85% of the square frame.
+      - Flawless pure white background (#FFFFFF). No gradient, no props, no surface,
+        no visible shadow cast on the background (a very soft, subtle contact shadow
+        directly under the product is acceptable).
+      - The product must be fully in focus, evenly lit with soft studio light,
+        accurate real-world colour, front-facing or a natural 3/4 hero angle,
+        with the label/logo facing the camera and fully readable.
+      - Commercial e-commerce studio photography, ultra sharp, high dynamic range,
+        no text overlay, no graphics, no badge, no border.
+
+      {extra_notes}
+
+  - id: "02_alternate_angle"
+    order: 2
+    title: "Alternate angle / multi-view"
+    allowed_text: false
+    file: "02_alternate_angle.png"
+    intent: "Shows the side/back and depth so buyers understand 3D form. Still clean."
+    template: |
+      Create an ALTERNATE ANGLE product image for this Amazon listing.
+
+      PRODUCT: {title}
+      BRAND: {brand}
+
+      DIRECTION:
+      - Same product as the reference images, shown from a rear/side 3-quarter angle
+        that reveals what the main image hides (back panel, base, seam, ports,
+        closure, internal detail).
+      - Blend of clean studio lighting with a very light neutral warm-grey
+        surface (#F4F4F2) and a soft natural contact shadow so the form reads clearly.
+      - Keep it minimal and premium: no props other than a subtle surface,
+        no clutter, no text, no graphics.
+      - Product occupies roughly 75-80% of the frame, sharp focus edge to edge,
+        accurate materials and finish (gloss vs matte, metal vs plastic must match references).
+
+      {extra_notes}
+
+  - id: "03_feature_infographic"
+    order: 3
+    title: "Feature infographic with callouts"
+    allowed_text: true
+    file: "03_feature_infographic.png"
+    intent: "Communicates 3-5 top selling points with clean callouts. This is the click-driver."
+    template: |
+      Create a FEATURE CALLOUT INFOGRAPHIC for this Amazon listing image.
+
+      PRODUCT: {title}
+      BRAND: {brand}
+      KEY SELLING POINTS (from the real listing bullets - use ONLY these):
+      {bullets}
+
+      DIRECTION:
+      - Hero shot of the exact product on a clean white or soft light-grey background,
+        occupying the centre, with 3 to 5 thin callout lines/arrows pointing to the
+        real features on the product.
+      - Each callout gets a short label (2-5 words) taken from the selling points above.
+        Correct spelling, modern geometric sans-serif, dark charcoal text, generous spacing.
+      - Use one restrained accent colour drawn from the product's own palette for
+        the lines, dots and small icon marks. No gradients, no cartoon icons, no emoji.
+      - Optional small minimalist line icons next to labels only if they aid understanding.
+      - Premium, editorial, uncluttered layout. Text must stay clear of the canvas edges
+        and stay legible at thumbnail size.
+
+      {extra_notes}
+
+  - id: "04_lifestyle_in_use"
+    order: 4
+    title: "Lifestyle / in-use scene"
+    allowed_text: false
+    file: "04_lifestyle_in_use.png"
+    intent: "Emotional context - shows who it is for and how it is used."
+    template: |
+      Create a LIFESTYLE IN-USE image for this Amazon listing.
+
+      PRODUCT: {title}
+      BRAND: {brand}
+      CATEGORY: {category}
+      TARGET CONTEXT (infer from bullets): {bullets}
+
+      DIRECTION:
+      - A warm, believable real-life scene in which the product is genuinely being used
+        by its likely buyer. The product is the hero and must match the references exactly
+        in shape, colour, texture and any visible branding.
+      - Natural daylight or soft window light, shallow but controlled depth of field,
+        lifestyle interior or outdoor setting appropriate to the category.
+      - If a person appears, keep it tasteful and secondary: hands and partial figure,
+        face not the focus, diverse and natural, correct scale and grip of the product,
+        no extra products with visible competitor logos.
+      - Editorial advertising photography, colour-graded, aspirational but honest,
+        no text, no graphics, no watermark, no collage.
+
+      {extra_notes}
+
+  - id: "05_dimensions_scale"
+    order: 5
+    title: "Dimensions / size and scale chart"
+    allowed_text: true
+    file: "05_dimensions_scale.png"
+    intent: "Answers 'will it fit / how big is it' - kills the most common return reason."
+    template: |
+      Create a DIMENSIONS AND SCALE image for this Amazon listing.
+
+      PRODUCT: {title}
+      BRAND: {brand}
+      REAL SPECIFICATIONS (use these numbers only - never invent dimensions):
+      {attributes}
+
+      DIRECTION:
+      - The exact product shown front-on and/or in a clean 3/4 view on a white background,
+        with precise dimension lines and arrows along width, height and depth.
+      - Print the measurements in a clean sans-serif with clear units (cm/in as listed).
+        If the listing spec does not state a dimension, omit that line entirely
+        rather than guessing.
+      - Include a subtle real-world scale cue (a hand outline, a common object such as
+        a phone or mug shown as a simple neutral silhouette) only if it does not confuse
+        the measurement reading.
+      - Technical, blueprint-clean aesthetic: thin grey lines, charcoal text, one accent
+        colour, no shadows, no clutter, no marketing claims.
+
+      {extra_notes}
+
+  - id: "06_whats_in_box"
+    order: 6
+    title: "What's in the box / flat lay"
+    allowed_text: true
+    file: "06_whats_in_box.png"
+    intent: "Sets expectations about included accessories - reduces 'missing part' complaints."
+    template: |
+      Create a WHAT'S IN THE BOX flat-lay image for this Amazon listing.
+
+      PRODUCT: {title}
+      BRAND: {brand}
+      CONTENT LIST (from the listing - include only what is actually stated):
+      {bullets}
+
+      DIRECTION:
+      - Top-down knolling flat lay on a clean white or very light neutral surface.
+      - The main product plus each included component/accessory/instruction booklet
+        laid out in an even, perfectly aligned grid with equal spacing and consistent scale.
+      - Each item gets a small, clean text label beneath it (2-4 words) in a modern
+        sans-serif with matching alignment. Only label items that are genuinely included;
+        do not add items that are not in the content list.
+      - Soft even overhead lighting, crisp shadows, colour-accurate, catalogue-clean,
+        no watermark, no badge, no price.
+
+      {extra_notes}
+
+  - id: "07_closeup_material"
+    order: 7
+    title: "Macro detail / build quality"
+    allowed_text: false
+    file: "07_closeup_material.png"
+    intent: "Proves quality: texture, stitching, finish, materials."
+    template: |
+      Create a MACRO DETAIL image for this Amazon listing.
+
+      PRODUCT: {title}
+      BRAND: {brand}
+      MATERIAL / BUILD CUES FROM THE LISTING: {attributes}
+
+      DIRECTION:
+      - Extreme close-up (macro) of the most premium or most-touched area of the product:
+        stitching, weave, grain, brushed metal, matte soft-touch coating, seam,
+        button or hinge - whichever the reference images show most clearly.
+      - Fill the frame with the detail so texture is almost tactile, razor-sharp focus
+        at the point of interest with a gentle falloff, raking side light to reveal surface relief.
+      - Absolutely faithful to the real material in the references. No text, no graphics,
+        no props, no watermark, no false metallic or glossy styling.
+
+      {extra_notes}
+
+  - id: "08_bundle_group"
+    order: 8
+    title: "Full bundle / complete set group shot"
+    allowed_text: true
+    file: "08_bundle_group.png"
+    intent: "Shows the complete set / variants and increases perceived value (AOV driver)."
+    template: |
+      Create the COMPLETE BUNDLE GROUP image for this Amazon listing.
+
+      PRODUCT: {title}
+      BRAND: {brand}
+      SET CONTENT: {bullets}
+      {variant_note}
+
+      DIRECTION:
+      - A confident group shot of the full set / all included pieces (and variants shown
+        in the reference images) arranged as one cohesive hero composition on a clean
+        light background with a soft horizon and natural grounding shadows.
+      - Clear visual hierarchy: the main unit is largest and front-centre, the rest
+        staggered back and to the sides at consistent scale, nothing hidden or cropped.
+      - Optional single short headline at the top - maximum 4 words, for example
+        "COMPLETE SET" - in a bold modern sans-serif, no other copy.
+      - Every item must match the reference images exactly. Photoreal, premium retail
+        packaging studio look, no watermark, no price, no badge, no collage borders.
+
+      {extra_notes}

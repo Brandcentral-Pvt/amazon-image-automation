@@ -1,0 +1,21 @@
+{
+  "product_category": "apparel",
+  "product_type": "Vichitra Silk Blend Kurta Set with Pant and Dupatta",
+  "audience": "Women",
+  "age_group": "Adult (18-35)",
+  "fashion_segment": "Ethnic",
+  "model_required": true,
+  "model_card": "Indian woman, mid-20s, warm medium skin tone, long dark hair in soft low bun or loose waves, minimal gold studs, natural radiant smile, relaxed posture — product remains the visual hero",
+  "background_family": "Premium Indian contemporary home interior: carved wooden jharokha window backdrop, handwoven cotton rug, brass urli with floating marigolds, soft diffused daylight",
+  "slot_direction": {
+    "01_hero_white": "Full-length front view on invisible mannequin, kurta centered, dupatta draped over one shoulder, pant hem visible — clean 4:5 crop, even lighting, no shadows",
+    "02_back_view": "Rear full-length showing kurta back yoke, dupatta fall, pant back rise — same framing as hero, highlight any back neck detail or slit",
+    "03_side_view": "Left-side 45° angle capturing kurta side slit, pant taper, dupatta flow — shows silhouette and garment length proportion",
+    "04_craft_story": "Extreme close-ups: Vichitra silk blend texture weave, neckline piping/stitching, dupatta border detail, pant waistband finish — macro lens, 1:1 squares",
+    "05_lifestyle": "Model seated on carved wooden jhoola swing, dupatta artfully arranged, holding chai cup — candid laugh, festive morning light through jharokha",
+    "06_styling_lookbook": "Styled for daytime haldi/mehendi: oxidized silver jhumkas, mojari flats, potli bag, light cotton jacket draped over shoulders — three-quarter standing pose",
+    "07_usp_infographic": "Verified blocks: 1) Vichitra Silk Blend fabric 2) 3-piece set (kurta + pant + dupatta) 3) Lightweight 300 g 4) Machine wash gentle 5) India-made by Royalica",
+    "08_product_guide": "Size & Fit Guide: Bust / Waist / Hip measurements per size (S-XXL), Kurta length, Pant length, Dupatta dimensions, Model stats (height 5'6\" wearing M), How to measure diagram"
+  },
+  "source": "nim"
+}

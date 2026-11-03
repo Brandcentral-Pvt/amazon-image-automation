@@ -1,0 +1,21 @@
+{
+  "product_category": "apparel",
+  "product_type": "Women's Regular Fit Self-Design Casual Button-Down Shirt",
+  "audience": "Women",
+  "age_group": "Adult (18-35)",
+  "fashion_segment": "Casual",
+  "model_required": true,
+  "model_card": "Indian woman, early 20s to early 30s, warm medium skin tone, shoulder-length dark hair with natural movement, minimal makeup, relaxed confident smile. Wears the shirt as hero — sleeves rolled once, one button undone at collar, tucked loosely into high-waisted jeans. Natural posture, candid energy.",
+  "background_family": "Bright airy urban loft with large windows, neutral textured walls, light wood flooring, minimal greenery — clean lifestyle aesthetic that reads premium but approachable for Indian marketplace.",
+  "slot_direction": {
+    "01_hero_white": "Front-on, waist-up on pure white. Shirt buttoned to collar, sleeves down. Even lighting, no shadows. Show self-design texture clearly. Centered, 4:5 crop.",
+    "02_back_view": "Same framing as hero, model turned 180°. Show back yoke, pleat (if any), hem line, and self-design continuity. Hair swept forward to reveal collar detail.",
+    "03_side_view": "45° angle, full torso. Demonstrate regular fit drape, sleeve length, hem curve. One hand in pocket for natural stance. White background.",
+    "04_craft_story": "Extreme close-ups (3–5 cm field): fabric weave showing self-design pattern, button stitching, collar construction, cuff finish, hem stitch. White seamless, macro lens.",
+    "05_lifestyle": "Model seated on light wood stool near window, morning light, holding chai cup. Shirt styled with rolled sleeves, front half-tuck. Candid laugh, eye contact. Loft background blurred but recognizable.",
+    "06_styling_lookbook": "Three-panel vertical: 1) Shirt + indigo straight-leg jeans + white sneakers (weekend brunch). 2) Shirt layered over fitted tank + beige culottes + loafers (office casual). 3) Shirt knotted at waist over midi dress + flats (evening). All on same model, loft setting.",
+    "07_usp_infographic": "Icon blocks on white: 1) \"100% Breathable Cotton Blend\" (fabric tag visible in craft shot). 2) \"Regular Fit — True to Size\" (size chart reference). 3) \"Machine Wash Cold\" (care label). 4) \"Self-Design Weave — No Print Fade\" (macro fabric shot). 5) \"₹399 — Everyday Value\" (price badge).",
+    "08_product_guide": "Single \"Size & Fit Guide\" panel: heading rows — \"Size\", \"Bust (cm)\", \"Waist (cm)\", \"Length (cm)\", \"Fit Tip\". Body rows for S–XXL with measurements. Footer: \"Model wears M, 5'5\", 32-26-34.\" White background, clean table."
+  },
+  "source": "nim"
+}

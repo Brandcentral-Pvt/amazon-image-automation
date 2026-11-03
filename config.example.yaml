@@ -1,0 +1,183 @@
+# =====================================================================
+#  Amazon ASIN -> 8-image compliant bundle  |  master configuration
+#  Copy to:  config.yaml   (env vars override anything in ${...} form)
+# =====================================================================
+
+# ---------------------------------------------------------------- amazon
+amazon:
+  # .in / .com / .co.uk / .de / .ae ...
+  domain: "amazon.in"
+  locale: "en-IN"
+  postal_code: ""              # optional: pin delivery location for consistent pricing
+  max_gallery_images: 12        # how many base images to pull per ASIN
+  min_image_px: 500            # reject base images smaller than this
+  scroll_passes: 4             # lazy-load scrolling passes
+  page_timeout_ms: 45000
+  # polite, human-ish pacing between ASINs (seconds)
+  delay_between_asins: [4, 9]
+
+# ---------------------------------------------------------------- browser
+browser:
+  headless: true
+  # Persisted Chrome profile -> keeps Amazon + Google sessions alive
+  user_data_dir: ".browser-profile"
+  channel: "chromium"          # chromium | chrome
+  user_agent: ""               # blank = playwright default
+  proxy: ""                    # http://user:pass@host:port
+  viewport: { width: 1440, height: 900 }
+
+# ---------------------------------------------------------------- scraping
+scrape:
+  retries: 3
+  retry_backoff_sec: 12
+  captcha_markers:
+    - "Enter the characters you see below"
+    - "Type the characters you see in this image"
+    - "/errors/validateCaptcha"
+    - "api-services-support@amazon.com"
+
+# ---------------------------------------------------------------- output
+output:
+  root: "output"
+  # per-ASIN layout
+  #   output/<ASIN>/
+  #     product.json
+  #     base_images/01.jpg ...
+  #     prompts/prompts.json + prompts.md
+  #     generated/01_main_white.png ...
+  #     manifest.json
+  keep_base_images: true
+
+# ---------------------------------------------------------------- gemini web
+gemini:
+  enabled: true
+  url: "https://gemini.google.com/app"
+  # ---- use your OWN signed-in Chrome profile (no separate sign-in screen, ever) ----
+  use_own_chrome_profile: true
+  chrome_profile_name: "Chirag"      # name shown in Chrome's profile picker
+  chrome_channel: "chrome"           # real Chrome is required to read Chrome cookies
+  user_data_dir: ".browser-profile-gemini"   # isolated copy (scraping keeps .browser-profile)
+  chrome_user_data_dir: ""           # blank = autodetect (LOCALAPPDATA\Google\Chrome\User Data)
+  recopy_chrome_profile: false       # set true to refresh the copy from Chrome
+  # model picker label (left as-is if not found)
+  model_hint: "2.5 Flash"      # e.g. "Nano Banana" / "2.5 Flash" / "Imagen"
+  max_reference_images: 6      # base images attached per prompt (Gemini caps uploads)
+  attach_references_every_slot: true  # re-attach the references before EVERY panel
+  # force the image-capable model in the picker before every chat - Gemini often
+  # lands on the default model and replies with text instead of an image
+  ensure_image_model: true
+  # STRICT: re-select "Create image" before EVERY image prompt, not only at chat
+  # creation - a continuous chat can silently fall back to the text model
+  ensure_image_model_every_slot: true
+  # after selecting "Create image" in the picker, also lock the UI aspect ratio
+  # (Aspect ratio -> 3:4). Per-chat UI state resets, so this runs on every chat.
+  aspect_ratio: "3:4"
+  image_model_hints:           # matched in the picker list (first match wins)
+    - "create images"
+    - "nano banana"
+    - "imagen"
+    - "image generation"
+    - "image"
+  # fallback retries for a failed slot: fresh chat + re-seeded master each attempt
+  slot_retries: 2
+  slot_retry_delay_sec: [10, 20]
+  new_chat_per_slot: false     # ONE continuous chat per ASIN batch (consistency)
+  send_master_prompt: true     # send the AIIE master_rules as the first message
+  master_ack_timeout_sec: 150  # wait for Gemini's reply to the master message
+  # seconds to wait for one generation before giving up
+  generation_timeout_sec: 180
+  upload_wait_sec: 8
+  between_slots_sec: [15, 30]  # generous pacing - Google /sorry-blocks fast bursts
+  block_wait_sec: 120          # cool-down when Google shows a /sorry traffic page
+  # Gemini UI selectors (edit here when Google ships UI changes - no code change needed)
+  selectors:
+    prompt_box: 'div[contenteditable="true"][role="textbox"], rich-textarea div[contenteditable="true"]'
+    file_input: 'input[type="file"]'
+    send_button: 'button[aria-label*="Send"], button.send-button'
+    stop_button: 'button[aria-label*="Stop"], button[aria-label*="stop response"]'
+    response_block: 'model-response, .model-response-text, message-content'
+    generated_image: 'model-response img, message-content img'
+    consent_buttons:
+      - 'button:has-text("I agree")'
+      - 'button:has-text("Accept all")'
+      - 'button:has-text("Got it")'
+
+# ---------------------------------------------------------------- NVIDIA NIM
+# Dynamic AIIE casting: detects the product type and picks suitable models for
+# clothing (kids/women/men), environments and per-panel direction.
+nim:
+  enabled: true
+  api_key: "${NIM_API_KEY}"    # real key lives in .env - never hardcode it here
+  base_url: "https://integrate.api.nvidia.com/v1"
+  model: "openai/gpt-oss-20b"
+  fallback_models:
+    - "openai/gpt-oss-20b"
+  timeout_sec: 90
+  temperature: 0.3
+  max_tokens: 1600
+  between_calls_sec: 1.0       # polite pacing between NIM requests (cached per ASIN)
+
+# ---------------------------------------------------------------- AIIE studio
+# prompts/aiie_studio.yaml = the RTF "Amazon Image Intelligence Engine 8P" pack
+studio:
+  templates: "prompts/aiie_studio.yaml"
+  panel_aspect: "3:4"
+  panel_width: 1600
+  panel_height: 1920
+
+# ------------------------------------------------------------ prompt gallery
+# Per-slot prompt BODIES come from the compiled prompt library (the user's
+# ~280-prompt gallery) instead of the fixed AIIE panel text. NIM picks the best
+# gallery prompt per slot and adapts it to this exact product/persona; the AIIE
+# compliance wrapper (product truth, identity lock, 3:4 output spec) stays.
+# Any failure -> that slot keeps its classic AIIE body automatically.
+gallery:
+  enabled: true
+  path: "DOCUMENTATION/all_prompts_compilation.json"
+  exclude_categories:            # utility junk, never image prompts
+    - "SYSTEM TASK CODE"
+  pool_size: 40                  # candidates (title+preview) shown to NIM per pick
+  # the ONE slot allowed a macro/close-up gallery prompt (craft story never is)
+  detail_closeup_slot: "08_product_guide"
+  nim_pick_tokens: 1400          # gemini-pick call budget
+  nim_adapt_tokens: 6000         # body-rewrite call budget (8 full texts out)
+
+# --------------------------------------------------------- watermark cleanup
+# Every generated image passes through the Veo/Gemini sparkle remover engine
+# BEFORE it counts as final: cleaned image replaces the file in place, the
+# pre-clean pixels go to generated/_with_watermark/ for provenance.
+# engine_dir points at the local remover app (wm_core.py lives there).
+watermark:
+  enabled: true
+  engine_dir: "G:\\veo-watermark-remover\\veo-watermark-remover\\local_app"
+  python: ""                    # blank = use the remover's own venv python
+  model: ""                     # blank = use <engine_dir>/models/lama_fp32.onnx
+  device: "cpu"                 # auto | cpu | cuda
+  threads: 0                    # 0 = onnxruntime default thread count
+  timeout_sec: 180              # per image
+
+# ---------------------------------------------------------------- tracking sheet
+sheet:
+  enabled: true
+  backend: "csv"               # csv  |  gspread
+  csv_path: "data/tracking.csv"
+  spreadsheet_id: ""           # from the Google Sheet URL
+  worksheet_name: "ASIN Jobs"
+  credentials_file: "service-account.json"   # or set GOOGLE_APPLICATION_CREDENTIALS
+  columns:
+    - asin
+    - status
+    - product_title
+    - brand
+    - base_images_found
+    - slots_done
+    - bundle_path
+    - error
+    - updated_at
+
+# ---------------------------------------------------------------- image specs
+image_spec:
+  size: 3000                   # square px requested from the model
+  aspect: "1:1"
+  color_space: "sRGB"
+  min_bytes: 60000             # sanity check on downloaded files

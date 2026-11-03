@@ -1,0 +1,21 @@
+{
+  "product_category": "apparel",
+  "product_type": "Ethnic Kurta",
+  "audience": "Women",
+  "age_group": "Adult (18-35)",
+  "fashion_segment": "Ethnic",
+  "model_required": true,
+  "model_card": "Indian woman, mid-20s, warm medium skin tone, long dark hair in soft loose waves, natural minimal makeup with subtle kajal, wearing light gold stud earrings only. Relaxed confident posture, gentle smile, eyes engaging camera. Product remains the visual hero.",
+  "background_family": "Premium Indian contemporary home interior: carved wooden jali screens, handloom cotton drapes in muted indigo and ivory, brass urli with floating marigolds, terracotta floor tiles, soft diffused morning light through sheer curtains.",
+  "slot_direction": {
+    "01_hero_white": "Front view, full garment on model, standing straight, arms relaxed at sides. Clean white backdrop, even lighting showing true fabric colour and overall silhouette. No props.",
+    "02_back_view": "Rear view on same model, same stance. Highlights back neckline, yoke detailing, and hem finish. White backdrop consistent with hero.",
+    "03_side_view": "Right-side profile, model weight shifted slightly. Shows side slit depth, sleeve length, and garment drape. White backdrop.",
+    "04_craft_story": "Flat-lay close-ups on textured handloom cotton surface: neckline embroidery/print detail, sleeve cuff finish, side slit binding, fabric weave texture. Include a brass sewing gauge for scale.",
+    "05_lifestyle": "Model seated on carved wooden diwan with bolster cushions, holding a copper chai cup. Candid laugh, dupatta draped casually. Environment shows jali screen and urli in soft bokeh.",
+    "06_styling_lookbook": "Model paired with white churidar leggings, oxidized silver jhumkas, and kolhapuri flats. Standing near doorway transitioning to garden, dupatta draped over one shoulder. Aspirational festive-morning vibe.",
+    "07_usp_infographic": "Three verified blocks on white: (1) Fabric: Lightweight breathable rayon blend (480 g total weight). (2) Care: Machine wash cold, line dry in shade. (3) Fit: Regular straight cut, side slits 12\", model 5'6\" wearing size M.",
+    "08_product_guide": "Size & Fit Guide only. Headings: Body Measurements (Bust/Waist/Hip cm), Garment Measurements (Length/Chest/Sleeve cm), How to Measure (tape placement diagrams), Size Chart Table (S-XXL), Fit Tips (\"runs true to size, choose larger for relaxed fit\")."
+  },
+  "source": "nim"
+}

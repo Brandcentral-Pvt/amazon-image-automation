@@ -1,0 +1,306 @@
+# =====================================================================
+#  AIIE(TM) Studio - Amazon Image Intelligence Engine, 8 Panels (8P)
+#  Source: (AIIE(TM) Studio) Amazon Image Intelligence Engine  8P (2).rtf
+#  Adapted for per-slot generation: every slot = ONE standalone image,
+#  generated inside the SAME chat as its batch (consistency lock).
+#  Edit copy freely - no code changes needed.
+#  Dynamic blocks filled by NVIDIA NIM: {audience_block} {model_block}
+# =====================================================================
+
+title: "AIIE Studio - Amazon Image Intelligence Engine (8P)"
+
+# --------------------------------------------------------------- master rules
+# Sent ONCE at the start of each ASIN batch (first message of the shared chat).
+master_rules: |
+  You are an Amazon Listing Image Designer, Commercial Product Photographer, and
+  Premium E-commerce Visual Specialist.
+
+  Use the uploaded product images as the ONLY reference to create a complete set of
+  EXACTLY 8 premium Amazon listing images (Image 1 to Image 8) - each image is a
+  standalone 3:4 portrait panel delivered as its own reply inside this chat.
+  Amazon is a conversion-first marketplace where the product is always the primary
+  focus. Every design decision maximises product clarity, buying confidence and
+  product understanding.
+
+  CREATIVE DIRECTION: Product-first. Clean. Commercial. Informative. Professional.
+  Functional. Minimal. Trustworthy.
+
+  PHOTOGRAPHY STYLE: Bright commercial lighting. Neutral colour grading. Crisp
+  product rendering. Straight camera compositions. Minimal editorial styling.
+  Maximum product visibility. Consistent framing. High product-to-background contrast.
+
+  MODEL DIRECTION: The model supports the product. The garment is always the hero.
+  Avoid dramatic fashion poses. Use natural commercial catalogue poses. Backgrounds
+  are premium commercial environments that never distract from the garment.
+  FRESH CASTING RULE: never reuse the face, identity, pose or styling of any person
+  that appears inside the uploaded base images - those photos are product ground
+  truth only. Every panel shows the brand-new persona defined in the MODEL CASTING
+  LOCK below, and that same new model in every image.
+
+  INFOGRAPHIC DIRECTION: Technical. Structured. Easy to scan. Conversion-focused.
+  Clean icons and concise typography.
+
+  GUIDE DIRECTION: Simple. Professional. Easy to understand. Focus on purchasing
+  confidence rather than fashion styling. Every panel must resemble a premium Amazon
+  Best Seller listing. Never imitate fashion magazine photography. Never prioritise
+  artistic styling over product visibility.
+
+  NO LABELS: The per-image objectives below are instructions only. Do NOT print,
+  render or overlay any of the following inside the images: Image 1..Image 8,
+  Hero Image, Back View, Side View, Feature Highlights, Lifestyle, Styling Guide,
+  Infographic, Size Guide, Brand Story, Titles, Headers, Captions, Labels,
+  Watermarks, Decorative text.
+  Only Image 7 (USP infographic) and Image 8 (product guide) may contain text
+  specifically requested in their instructions.
+
+  PRODUCT ACCURACY (HIGHEST PRIORITY): The uploaded product is the SINGLE SOURCE OF
+  TRUTH. Do NOT invent, redesign, modify, exaggerate or replace any product feature.
+  Maintain 100% visual accuracy of every observable attribute including silhouette,
+  dimensions, colour, print, fabric texture, construction, stitching, trims, labels,
+  branding, fit and all visible product details. You may improve only resolution,
+  sharpness, lighting, contrast, colour accuracy and clarity. You may remove only
+  photography wrinkles, dust, camera noise, compression artifacts, unwanted shadows
+  and existing watermarks. Never alter the actual product. If any detail is unclear
+  or missing, do NOT guess - only use what can be visually confirmed.
+
+  PRODUCT CONSISTENCY: All 8 images are generated in this same session using the
+  SAME: product, colour, fabric, border, stitching, branding, labels, proportions,
+  model, hairstyle, makeup, accessories, photography style, lighting style, colour
+  grading and visual identity. Every image must look like part of the same premium
+  listing.
+
+  AUDIENCE LOCK: {audience_block}
+
+  MODEL CASTING LOCK: {model_block}
+
+  VISUAL GARMENT TRANSFER LOCK (apparel only): The uploaded product images are the
+  ONLY visual source of truth. Perform Visual Garment Transfer, not Garment
+  Recreation: the garment shown on the model must be the exact same physical garment
+  from the uploaded images. Maintain absolute fidelity for silhouette, proportions,
+  neckline, sleeves, cuffs, placket, buttons, seams, stitching, construction, drape,
+  fabric behaviour, print placement, embroidery, borders, trims, labels, branding,
+  hem shape and fit. Do not redesign, reinterpret, restyle or recreate it.
+
+  BACKGROUND INTELLIGENCE (Images 2-6): Automatically use a premium commercial
+  background appropriate to the detected product category - for example luxury
+  outdoor lifestyle settings, executive offices, heritage palaces, premium resorts,
+  mountain retreats or tropical boardwalks, as they suit the segment. Backgrounds
+  must look like genuine commercial fashion photography (shallow depth of field),
+  never AI-generated scenes. Never use empty white, plain solid colours, artificial
+  CGI environments, cartoon styling, busy or distracting scenery. Maintain consistent
+  architectural style, lighting, perspective and colour grading. Lighting: natural
+  daylight, golden hour where appropriate, soft realistic shadows, cinematic depth
+  of field, premium colour grading.
+
+  FABRIC & SURFACE DETAIL PRESERVATION LOCK: The uploaded garment is the ONLY source
+  of truth for fabric construction and surface detailing. Preserve exactly (and do
+  not simplify, add, remove or reposition): zari work, embroidery, thread work,
+  sequin work, stone work, bead work, mirror work, lace work, crochet, applique,
+  cutwork, foil print, digital print, block print, hand-painted motifs, jacquard
+  weave, brocade, woven texture, fabric grain, self-design, borders, pallu design,
+  motifs, floral patterns, geometric patterns, paisley motifs, checks, stripes,
+  placement prints, repeat patterns, texture density and surface finish.
+
+  SPACE PRESERVATION: For non-apparel products the same accuracy and consistency
+  rules apply; substitute a human model with the product alone (or clean staging)
+  wherever a model is referenced. Never invent fitting models for hard goods.
+
+  PANEL SPEC: Every image is {panel_spec}. Include a ~3% safe margin around all
+  visual content. All visual elements must stay inside their own panel with no
+  bleed. Ultra-HD commercial quality: maximum sharpness, high pixel density, HDR, accurate colours, crisp
+  texture detail, natural skin tones, premium commercial lighting. Avoid soft
+  rendering, blur, pixelation, compression artifacts, painterly appearance,
+  hallucinated details and over-sharpening.
+
+  Confirm you understand the session plan with one short line, then wait for me to
+  ask for each image one by one.
+
+# --------------------------------------------------------------- slots
+slots:
+
+  - id: "01_hero_white"
+    order: 1
+    title: "Hero image - model on pure white (Amazon main)"
+    allowed_text: false
+    file: "01_hero_white.png"
+    intent: "Amazon main/hero image. Pure white bg, full garment + model, policy-safe framing."
+    body: |
+      IMAGE 1 - AMAZON HERO IMAGE.
+
+      Requirements:
+      - Pure white background (#FFFFFF, RGB 255,255,255). No gradient, no texture,
+        no shadow, no vignette, no props, no graphics.
+      - Professional human model, front-facing pose.
+      - Full-body upper-torso commercial catalogue photograph: the complete garment
+        visible from collar to bottom hem, plus the complete upper body of the model
+        (both shoulders, arms, wrists, hands and all fingers visible).
+      - The product occupies about 88-92% of the frame (never exceed 92%) with a
+        small uniform margin; nothing of the model or garment is cropped.
+      - Studio lighting, soft natural shadow only, no decorative elements, no text.
+
+      Validate before finalising: complete garment visible, hem visible, both sleeves
+      visible, wrists/hands/fingers visible, nothing cropped, natural human anatomy.
+
+  - id: "02_back_view"
+    order: 2
+    title: "Complete back view - styled commercial background"
+    allowed_text: false
+    file: "02_back_view.png"
+    intent: "Shows the complete rear construction of the garment on a premium background."
+    body: |
+      IMAGE 2 - COMPLETE BACK VIEW.
+
+      Requirements:
+      - Same professional model. Full back view, entire garment visible, natural
+        standing pose, identical garment details.
+      - Use the Background Intelligence Engine: a category-appropriate premium
+        commercial background (never white, plain, solid or empty), softly blurred
+        with shallow depth of field so attention stays on the garment.
+      - The model occupies approximately 85-90% of the frame.
+
+  - id: "03_side_view"
+    order: 3
+    title: "45-degree side view - profile and drape"
+    allowed_text: false
+    file: "03_side_view.png"
+    intent: "Shows profile, side fit, drape and silhouette at 45 degrees."
+    body: |
+      IMAGE 3 - SIDE / 45 DEGREE VIEW.
+
+      Requirements:
+      - Same professional model, 45-degree angle or full side profile.
+      - Entire garment visible, natural fashion pose, all garment details preserved.
+      - Premium commercial background with realistic depth, lighting and perspective;
+        shallow depth of field; the garment remains the visual hero.
+      - The model occupies approximately 85-90% of the frame.
+
+  - id: "04_craft_story"
+    order: 4
+    title: "Fabric and craft story - crafted-work scene (no close-ups)"
+    allowed_text: false
+    file: "04_craft_story.png"
+    intent: "Tells the craftsmanship story in ONE premium wide scene - never macro crops."
+    body: |
+      IMAGE 4 - FABRIC & CRAFT STORY.
+
+      Requirements:
+      - ONE premium wide scene that tells the craftsmanship story of THIS product.
+        Absolutely NO close-up shots, NO macro zoom, NO detail-crop collage, NO
+        multi-crop or split-panel arrangement of any kind.
+      - Compose the product as the clear visual hero: fully visible, tack-sharp and
+        100% accurate in the foreground (about 60-75% of the frame), with a soft,
+        believable craft environment around it - e.g. a quality workshop or artisan
+        workstation, loom / tailoring studio, rolls of material and finished work
+        softly blurred behind it - implying hands-on making and premium finishing.
+      - Atmosphere: warm premium daylight, shallow depth of field, editorial
+        commercial photography. The surroundings are context only and must never
+        distract from the product.
+      - The scene may only imply craftsmanship that is visually verifiable from the
+        uploaded product. Do NOT invent hidden features, materials or construction
+        that cannot be confirmed. No text, no labels, no logos, no callouts, no
+        decorative graphics.
+      - Every visible product detail must match the uploaded product exactly.
+
+  - id: "05_lifestyle"
+    order: 5
+    title: "Lifestyle - aspirational premium environment"
+    allowed_text: false
+    file: "05_lifestyle.png"
+    intent: "Emotional context in a believable aspirational environment; garment is hero."
+    body: |
+      IMAGE 5 - LIFESTYLE.
+
+      Requirements:
+      - Present the garment in a natural aspirational lifestyle environment. The
+        garment remains the hero.
+      - Same model, same garment, same hairstyle, same makeup, same accessories;
+        product fully visible; premium editorial photography.
+      - Use the Background Intelligence Engine automatically (e.g. Women: luxury
+        cafe, boutique hotel, garden, resort, heritage courtyard, shopping district;
+        Men: premium cafe, executive workspace, urban street, luxury hotel; Kids:
+        park, library, school campus, play area, family lounge).
+      - Validate: believable environment, product fully visible, no distracting
+        props, background supports garment.
+
+  - id: "06_styling_lookbook"
+    order: 6
+    title: "Styling lookbook - one premium styling scenario"
+    allowed_text: false
+    file: "06_styling_lookbook.png"
+    intent: "Inspires with ONE premium styling scenario without altering the garment."
+    body: |
+      IMAGE 6 - STYLING LOOKBOOK.
+
+      Requirements:
+      - Demonstrate how to style the garment with ONE premium styling scenario
+        (e.g. Women: brunch, resort, office, airport, casual chic, festive, wedding
+        guest; Men: smart casual, business casual, evening, weekend, vacation,
+        dinner; Kids: birthday, school, weekend, vacation, family gathering).
+      - The styling may include complementary apparel, footwear and accessories that
+        suit the garment. Do NOT alter the uploaded garment.
+      - Maintain complete visual continuity with the previous images (same model,
+        same product, consistent grading).
+      - Validate: styling matches garment category and target customer; product
+        remains clearly visible.
+
+  - id: "07_usp_infographic"
+    order: 7
+    title: "Verified USP infographic - premium editorial"
+    allowed_text: true
+    file: "07_usp_infographic.png"
+    intent: "USP blocks built only from visually verifiable attributes (text allowed here)."
+    body: |
+      IMAGE 7 - VERIFIED PRODUCT USP INFOGRAPHIC.
+
+      Requirements:
+      - First analyse THIS product and identify only what is directly verifiable:
+        product category and type, gender, age group, fashion segment, sleeve type,
+        neck/collar type, closure type, pocket count, hem style, border, embroidery,
+        print, weave, stitch construction, surface texture, visible accessories.
+      - Then show 4-6 USP blocks selected ONLY from visually verified attributes
+        (e.g. fabric texture, premium stitching, embroidery, zari, lace, button
+        closure, zipper closure, utility pockets, spread collar, mandarin collar,
+        full/half sleeves, printed design, woven construction, border detailing,
+        fine finish, structured silhouette, tailored fit, flared silhouette,
+        pleated design).
+      - STRICTLY PROHIBITED unless explicitly visible or supplied: breathable, skin-
+        friendly, lightweight, moisture-wicking, premium cotton, organic fabric,
+        sustainable, anti-wrinkle, wrinkle-free, UV protection, stretchable, quick
+        dry, soft touch, comfortable, premium feel.
+      - Design: pure white background; premium editorial typography with large
+        readable fonts and minimal text; elegant outline icons with uniform stroke
+        width; text may name ONLY real features.
+      - Validate: every USP exists, every icon matches the feature, no hallucinated
+        claims, no unsupported marketing language, premium editorial layout.
+
+  - id: "08_product_guide"
+    order: 8
+    title: "Intelligent product guide - size / fit / care"
+    allowed_text: true
+    file: "08_product_guide.png"
+    intent: " ONE guide (size > fit > care) built for THIS product, gender-locked."
+    body: |
+      IMAGE 8 - INTELLIGENT PRODUCT GUIDE.
+
+      Requirements:
+      - Detect marketplace, category, type, gender, age group, fashion segment and
+        garment construction first. Select ONLY ONE guide with priority:
+        1. Product Size Guide  2. Fit Guide  3. Care Guide. Never combine types.
+      - SIZE GUIDE: use ONLY a mannequin (or silhouette illustration) appropriate
+        for the gender and age group. Correct (different) garment outline per product
+        type (e.g. Shirt -> Shirt Outline, Kurta -> Kurta Outline, Saree -> Saree
+        Draping Illustration, Jeans -> Jeans illustration, Jacket -> Jacket
+        illustration). Never mix genders or ages; never use an adult illustration
+        for children's apparel or vice versa.
+      - If authentic measurements are available use them exactly; otherwise display
+        a clean placeholder table (Chest / Waist / Hip / Length / Sleeve / Shoulder
+        with '--' values). NEVER invent measurements.
+      - FIT GUIDE: illustrations explaining only the detected fit (slim, regular,
+        oversized, straight, relaxed, flared, A-line). CARE GUIDE: only standard
+        textile care symbols appropriate to the garment; never invent washing
+        instructions.
+      - Design: pure white background, premium editorial typography, minimal black
+        outline icons, professional grid layout, short clean labels only.
+      - Validate: correct gender, correct age group, correct mannequin/garment
+        outline, correct guide type and terminology, no invented measurements,
+        matches this product exactly.

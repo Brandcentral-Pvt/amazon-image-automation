@@ -1,0 +1,21 @@
+{
+  "product_category": "apparel",
+  "product_type": "Boys' Cotton Solid Kurta",
+  "audience": "Boys",
+  "age_group": "Kids (8-12)",
+  "fashion_segment": "Ethnic",
+  "model_required": true,
+  "model_card": "South Asian boy, approx. 10 years old, medium wheat complexion, short neat black hair, natural relaxed smile, standing confidently; wears the kurta as hero piece with simple cotton pyjama bottoms.",
+  "background_family": "Contemporary Indian home interior: clean pastel walls, carved wooden jharokha window, subtle brass diya, handloom cotton throw on low seating — warm festive morning light.",
+  "slot_direction": {
+    "01_hero_white": "Front-on, full-length on pure white; collar, placket, hem and sleeve cuffs perfectly aligned; even lighting, no shadows.",
+    "02_back_view": "Straight back view showing yoke seam, centre-back length, and clean hem finish; same framing as hero.",
+    "03_side_view": "Left side profile highlighting straight regular fit, side slit depth, and sleeve set-in; garment hangs naturally.",
+    "04_craft_story": "Close-ups: 1) machine-stitched placket with evenly spaced buttons, 2) reinforced side-slit bar-tack, 3) double-needle hem stitch, 4) fabric weave texture showing 100 % cotton yarn.",
+    "05_lifestyle": "Boy seated cross-legged on floor cushion beside jharokha window, morning light pooling on kurta; genuine candid laugh, one hand on knee — authentic festive morning moment.",
+    "06_styling_lookbook": "Kurta paired with off-white cotton churidar and brown leather mojaris; add a lightweight printed stole draped over one shoulder for a wedding-guest look.",
+    "07_usp_infographic": "Three verified blocks: 1) \"100 % Pure Cotton — Breathable & Skin-Friendly\", 2) \"Regular Fit — Comfortable for All-Day Wear\", 3) \"Machine Washable — Easy Care\".",
+    "08_product_guide": "Size & Fit Guide: chest measurement chart (cm/in), length from shoulder, sleeve length, age-to-size mapping, and \"How to Measure\" diagram."
+  },
+  "source": "nim"
+}

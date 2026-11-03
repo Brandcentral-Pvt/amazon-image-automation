@@ -1,0 +1,21 @@
+{
+  "product_category": "apparel",
+  "product_type": "Georgette Floral Embroidered Sequins Frilled Flared A-Line Ethnic Kurta Dress",
+  "audience": "Women",
+  "age_group": "Adult (18-35)",
+  "fashion_segment": "Ethnic",
+  "model_required": true,
+  "model_card": "Indian woman, mid-20s to early-30s, warm medium skin tone, long dark hair styled naturally (soft waves or low bun), minimal gold jewellery (small studs, thin bangle), natural confident smile, height ~5'4\" to suit XXXL drape; product remains hero",
+  "background_family": "Premium indoor ethnic-lifestyle setting: muted ivory walls with subtle traditional jaali screen or carved wooden panel, soft diffused window light, handwoven rug, brass urli with floating petals — clean, aspirational, non-distracting",
+  "slot_direction": {
+    "01_hero_white": "Full-length front view on invisible mannequin or model, centred, slight ¾ angle to show A-line flare; even lighting, true black colour fidelity, sequins catch subtle highlights",
+    "02_back_view": "Full back view showing back neckline, embroidery continuation, and flare fall; same framing as hero",
+    "03_side_view": "Right-side silhouette highlighting frilled hem movement and flared volume; model mid-step or mannequin rotated 90°",
+    "04_craft_story": "Macro trio: (1) floral thread embroidery with sequin accents on yoke, (2) frill stitching detail at hem, (3) georgette texture & weight — each 3–4 cm field of view, neutral grey card",
+    "05_lifestyle": "Model seated on low carved stool beside brass urli, soft daylight through sheer curtain; candid laugh, dupatta draped casually — conveys festive daytime gathering",
+    "06_styling_lookbook": "Paired with gold jhumkas, embellished mojaris, and a sheer chiffon dupatta in contrasting jewel tone (emerald or maroon); shows complete festive look",
+    "07_usp_infographic": "Four icon blocks: (1) Fabric: Pure Georgette, (2) Embellishment: Floral Embroidery + Sequins, (3) Fit: Flared A-Line with Frilled Hem, (4) Care: Hand Wash / Dry Clean — verified from title & attributes",
+    "08_product_guide": "Size & Fit Guide only: heading rows — Bust / Waist / Hip (cm), Length (cm), Sleeve Length (cm), Model Wears Size XXXL (measurements), Fit Tips: 'Relaxed flare, size down for slimmer silhouette'"
+  },
+  "source": "nim"
+}

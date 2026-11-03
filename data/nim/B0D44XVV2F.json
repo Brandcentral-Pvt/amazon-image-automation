@@ -1,0 +1,21 @@
+{
+  "product_category": "apparel",
+  "product_type": "Cotton Chikankari Embroidered Straight Kurta Pant Dupatta Set",
+  "audience": "Women",
+  "age_group": "Adult (18-35)",
+  "fashion_segment": "Ethnic",
+  "model_required": true,
+  "model_card": "Indian woman, mid-20s to early-30s, warm medium skin tone, long dark hair worn loose or low bun, minimal gold studs, natural soft smile, relaxed posture. Product remains the visual hero.",
+  "background_family": "Premium Indian contemporary home interior: muted lime-washed walls, carved wooden jharokha window, handloom cotton throws, brass diya, subtle marigold garland — warm daylight, clean negative space for product focus.",
+  "slot_direction": {
+    "01_hero_white": "Full-length front view on invisible mannequin or model, straight kurta centered, dupatta draped over one shoulder, pant hem visible. Even lighting, true-to-color cotton texture, Chikankari embroidery sharp.",
+    "02_back_view": "Rear full-length showing kurta back yoke embroidery, dupatta fall, pant back rise. Same framing as hero for consistency.",
+    "03_side_view": "Right-side 45° angle capturing kurta side slit, pant taper, dupatta border detail. Highlights straight silhouette and fabric drape.",
+    "04_craft_story": "Extreme close-ups: (a) Chikankari shadow-work stitches (bakhiya, phanda, keel) on kurta front panel, (b) matching border on dupatta edge, (c) cotton yarn texture. Macro lens, raking light.",
+    "05_lifestyle": "Model seated on low carved stool near jharokha window, morning chai in brass cup, dupatta casually draped. Candid laugh, natural light — aspirational daily-wear moment.",
+    "06_styling_lookbook": "Styled with oxidised silver jhumkas, kolhapuri flats, and a woven cotton sling bag. Shows versatile day-to-evening transition.",
+    "07_usp_infographic": "Verified blocks: 100% Cotton | Hand-embroidered Chikankari (Lucknow) | 3-piece Set (Kurta+Pant+Dupatta) | Machine Wash Gentle | Weight 460 g | Made in India.",
+    "08_product_guide": "Size & Fit Guide: Bust / Waist / Hip / Kurta Length / Pant Length / Dupatta Dimensions — illustrated flat-lay schematic with measurement points."
+  },
+  "source": "nim"
+}

@@ -1,0 +1,21 @@
+{
+  "product_category": "apparel",
+  "product_type": "Men's Solid Regular Fit Shirt",
+  "audience": "Men",
+  "age_group": "Adult (18-35)",
+  "fashion_segment": "Western",
+  "model_required": true,
+  "model_card": "Indian male model, late 20s, wheatish complexion, short neat black hair, clean-shaven or light stubble, athletic build, confident relaxed posture, natural smile; wears the shirt as hero piece",
+  "background_family": "Modern urban studio with muted concrete walls, warm wood accents, and soft directional lighting — premium e-commerce lifestyle aesthetic",
+  "slot_direction": {
+    "01_hero_white": "Front-on, waist-up shot on pure white; collar, placket, and regular fit silhouette centered; even lighting, no shadows",
+    "02_back_view": "Straight back view, same framing; shows yoke, back pleats (if any), and hem line; pure white background",
+    "03_side_view": "45° angle left side; reveals sleeve set, side seam, and shirt length; white background",
+    "04_craft_story": "Close-ups: fabric weave texture, button stitching, collar construction, cuff detail, hem finish — all on neutral grey card",
+    "05_lifestyle": "Model seated at a café table with laptop and coffee, natural window light; shirt worn untucked, sleeves rolled once — aspirational work-from-café vibe",
+    "06_styling_lookbook": "Two-panel: left — shirt with dark indigo jeans and white sneakers (smart-casual); right — shirt tucked into charcoal chinos with brown loafers (office-casual)",
+    "07_usp_infographic": "Icon blocks: 100% Cotton (if verifiable), Regular Fit, Machine Wash, Breathable Fabric, Colorfast — each with tiny icon and 2-word label",
+    "08_product_guide": "Size & Fit Guide: chest measurement table (S-XXL), fit description (Regular), model stats (height/chest/size worn), care icons (machine wash cold, tumble low, iron medium)"
+  },
+  "source": "nim"
+}

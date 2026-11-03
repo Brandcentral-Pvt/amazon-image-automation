@@ -1,0 +1,16 @@
+# --- crawling + browser automation ---
+playwright>=1.47.0          # Amazon scrape + Gemini web driving
+# after install run:  python -m playwright install chromium
+
+# --- core ---
+requests>=2.32.0
+PyYAML>=6.0
+python-dotenv>=1.0.0
+Pillow>=10.3.0              # image validation / dimension checks
+
+# --- google sheets tracking ---
+gspread>=6.1.0
+google-auth>=2.30.0
+
+# --- optional: safer image conversion ---
+# pillow-heif>=0.17.0

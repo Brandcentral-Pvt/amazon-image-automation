@@ -1,0 +1,22 @@
+{
+  "product_category": "apparel",
+  "product_type": "Cotton Blend Mandarin Collar Kurta",
+  "audience": "Men",
+  "age_group": "Adult (18-45)",
+  "fashion_segment": "Ethnic",
+  "model_required": true,
+  "model_card": "Indian male, late 20s to early 30s, medium wheat complexion, clean-shaven with short neat black hair, natural relaxed smile, average athletic build (approx. 5'9\", 70 kg), wearing the kurta in a relaxed confident posture",
+  "background_family": "Contemporary Indian lifestyle studio with warm neutral tones — textured lime-washed walls, subtle wooden accents, soft diffused daylight",
+  "slot_direction": {
+    "01_hero_white": "Front-facing full-length shot on pure white, model standing relaxed, kurta buttoned to collar, sleeves down, even lighting showing true colour and regular fit silhouette",
+    "02_back_view": "Rear full-length on white, same pose, showing straight hem, no vents, clean back panel and collar detail from behind",
+    "03_side_view": "Left-side profile on white, arm slightly away from body to reveal sleeve set and side seam, Mandarin collar profile visible",
+    "04_craft_story": "Wide artisan workshop scene: Indian tailor seated at low wooden table, hand-guiding fabric under a single-needle machine, bolts of cotton-blend cloth stacked nearby; product worn by model standing adjacent, sharply focused while background softly blurred — verify mandarin collar, full sleeves, regular fit, short length",
+    "05_lifestyle": "Sunlit urban courtyard with potted plants and jute rug, model seated cross-legged on low charpoy, kurta worn open over a plain tee, casual weekend vibe",
+    "06_styling_lookbook": "Kurta paired with slim-fit chinos in sand beige and brown leather kolhapuris, accessorised with a minimal steel watch — smart-casual festive brunch look",
+    "07_usp_infographic": "Three verified blocks: 1) Cotton-blend fabric (breathable, 240 g weight) 2) Mandarin collar with full sleeves 3) Regular fit, short length — machine wash cold, tumble low",
+    "08_product_guide": "Size & Fit Guide: chest measurement chart (S-XXL), length from shoulder, sleeve length, fit type (regular), model stats (height/chest/size worn)"
+  },
+  "source": "nim",
+  "cast_version": 3
+}

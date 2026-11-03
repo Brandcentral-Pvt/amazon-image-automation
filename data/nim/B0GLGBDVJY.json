@@ -1,0 +1,22 @@
+{
+  "product_category": "apparel",
+  "product_type": "Pure Cotton A-Line Kurta Set with Palazzo Pants & Dupatta",
+  "audience": "Women",
+  "age_group": "Adult (18-35)",
+  "fashion_segment": "Ethnic",
+  "model_required": true,
+  "model_card": "Indian woman, mid-20s, warm medium-brown skin, shoulder-length black hair with soft natural waves, minimal kajal and tinted lip balm, relaxed confident smile, wearing the kurta set naturally draped — no heavy makeup, no staged poses.",
+  "background_family": "Contemporary Indian home interior: muted lime-washed walls, carved wooden jharokha window, handloom cotton throws, brass diya accents — soft daylight, airy and aspirational.",
+  "slot_direction": {
+    "01_hero_white": "Front ¾ view on invisible mannequin, kurta centered, palazzo hem visible, dupatta draped over one shoulder — clean white, even lighting, no shadows.",
+    "02_back_view": "Same framing as hero, rotated 180° to show back yoke, keyhole/closure detail, and dupatta fall.",
+    "03_side_view": "Left-side profile showing A-line flare, palazzo width, and dupatta length — garment hangs naturally.",
+    "04_craft_story": "Wide artisan workshop scene: master tailor at wooden cutting table aligning pure-cotton fabric bolts, charkha spindle in background, finished kurta set draped on dress form — product sharp, environment softly blurred. Verify: pure cotton fabric, A-line silhouette, palazzo cut, dupatta border.",
+    "05_lifestyle": "Model seated on jute rug in the contemporary home interior, sipping chai from a brass cup, dupatta casually arranged — relaxed festive morning vibe.",
+    "06_styling_lookbook": "Kurta set paired with oxidised silver jhumkas, leather kolhapuris, and a structured cotton tote — office-to-evening ethnic look.",
+    "07_usp_infographic": "Three verified blocks: 1) 100% Pure Cotton — breathable, skin-friendly. 2) Complete 3-Piece Set — kurta, palazzo, dupatta. 3) Machine Washable — easy care, color-fast.",
+    "08_product_guide": "Size & Fit Guide: Bust / Waist / Hip measurements for S–XXL; Kurta Length; Palazzo Inseam; Model stats (height, size worn); Fit notes (regular A-line, true to size)."
+  },
+  "source": "nim",
+  "cast_version": 3
+}

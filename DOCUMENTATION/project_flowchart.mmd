@@ -1,0 +1,179 @@
+%%{init: {'theme': 'base', 'themeVariables': { 'primaryColor': '#0B5FFF', 'primaryTextColor': '#fff', 'primaryBorderColor': '#0B5FFF', 'lineColor': '#0B5FFF', 'secondaryColor': '#F4F4F2', 'tertiaryColor': '#fff'}}}%%
+flowchart TD
+    %% ============================ CLI LAYER ============================
+    subgraph CLI["CLI ENTRY POINT (run.py)"]
+        direction TB
+        cli_login[("run.py login")]:::cli
+        cli_scrape[("run.py scrape")]:::cli
+        cli_generate[("run.py generate")]:::cli
+        cli_clean[("run.py clean")]:::cli
+        cli_all[("run.py all / one")]:::cli
+    end
+
+    %% ============================ CONFIG LAYER ============================
+    subgraph CFG["CONFIGURATION & CREDENTIALS"]
+        direction LR
+        cfg_yaml[("config.yaml")]:::cfg
+        cfg_env[(".env — NIM_API_KEY")]:::cfg
+        cfg_exp["${ENV} expansion + dotenv load"]:::cfg
+    end
+
+    %% ============================ STAGE 1: SCRAPE ============================
+    subgraph S1["STAGE 1 — SCRAPE (Amazon → product.json + base_images/)"]
+        direction TB
+        s1_entry[("scrape_many()")]:::stage1
+        s1_browser["Launch Playwright persistent Chrome context<br/>• browser.user_data_dir (.browser-profile)<br/>• headless / chrome channel<br/>• anti-bot init script (navigator.webdriver = undefined)"]:::stage1
+        s1_loop["FOR EACH ASIN in list"]:::stage1
+        s1_goto["page.goto(amazon.in/dp/<ASIN>?language=en-IN)<br/>wait_for_timeout + scroll_passes × 4 (lazy-load gallery)"]:::stage1
+        s1_cookie["Dismiss cookie banner<br/>(Accept / Accept All / Got it / Dismiss)"]:::stage1
+        s1_blocked["_check_blocked() — captcha markers:<br/>• 'Enter the characters you see below'<br/>• '/errors/validateCaptcha'<br/>• api-services-support@amazon.com"]:::stage1
+        s1_extract["JS extractor (_JS_EXTRACT) pulls:<br/>• title, brand, price, rating, reviews<br/>• availability, category, bullets (≤10)<br/>• attributes, variants (≤12), aplus_text<br/>• gallery image URLs (data-a-dynamic-image,<br/>  landingImage, altImages, #imageBlock,<br/>  hiRes regex, canonical URL)"]:::stage1
+        s1_title_check["title found?"]:::stage1
+        s1_fail["scrape_status = 'failed'<br/>error stored in manifest → report to tracker<br/>continue to next ASIN"]:::stage1
+        s1_product["ProductData built:<br/>asin, domain, url, title, brand, category,<br/>price, rating, reviews, availability, bullets,<br/>attributes, variants, image_urls (≤12),<br/>scrape_status='ok', scraped_at"]:::stage1
+        s1_save_product["write product.json<br/>manifest stages.scrape = ok"]:::stage1
+        s1_download["download_base_images() → output/<ASIN>/base_images/<NN>.jpg<br/>• hi-res ladder: _SL2000_ → _SL1500_ → _SL1200_ → _SL1000_ → original<br/>• validate: content-type=image, ≥3000 bytes, ≥min_image_px<br/>• dedupe by SHA-256 content hash<br/>• stop at max_gallery_images"]:::stage1
+        s1_save_manifest["manifest stages.base_images = ok/empty<br/>report to tracker (CSV / Google Sheets):<br/>asin, status=scraped, base_images_found,<br/>bundle_path, updated_at"]:::stage1
+        s1_delay["human_delay(delay_between_asins [4,9]s)<br/>between ASINs"]:::stage1
+    end
+
+    %% ============================ STAGE 2: GENERATE ============================
+    subgraph S2["STAGE 2 — GENERATE (prompts → 8 images via Gemini web)"]
+        direction TB
+        s2_entry[("generate() — per ASIN with product.json")]:::stage2
+        s2_load_product["read product.json → ProductData.from_dict()<br/>skip if scrape_status != 'ok'"]:::stage2
+        s2_build_bundle["build_bundle() — prompts.py<br/>• Load AIIE studio pack (aiie_studio.yaml)<br/>  fallback: slots.yaml (legacy)<br/>• NIM casting (nim_client.py):<br/>  - NVIDIA NIM chat/completions API<br/>  - cached per ASIN in data/nim/<asin>.json<br/>  - local fallback if NIM fails<br/>• build_master_message() — session opener<br/>• build 8 slot prompts (AIIE PANEL N/8)<br/>• write prompts.json + prompts.md"]:::stage2
+        s2_dry_run["dry_run? → save prompts as .txt<br/>return, skip Gemini calls"]:::stage2
+        s2_gemini_start["GeminiWeb context:<br/>• launch_gemini_context() — own Chrome profile<br/>• filechooser interception handler<br/>• download routing handler<br/>• goto gemini.google.com/app<br/>• _cool_down_on_block() if /sorry/<br/>• _dismiss_overlays() consent buttons<br/>• _assert_logged_in()<br/>• ensure_image_model()"]:::stage2
+        s2_begin_batch["begin_batch(master)<br/>• new_chat() → fresh chat per ASIN<br/>• send AIIE master message (audience lock,<br/>  model casting lock, visual garment transfer lock,<br/>  background intelligence, panel spec 3:4 1600×1920)<br/>• _wait_for_reply(text_ok=True)"]:::stage2
+        s2_slot_loop["FOR EACH of 8 slots (pending only,<br/>skip if status=ok and file exists,<br/>unless --force)"]:::stage2
+        s2_retry_loop["FOR attempt 1..(slot_retries+1)<br/>on failure: restart_batch() + delay<br/>retry_delay_sec [10,20]s"]:::stage2
+        s2_upload_refs["upload_images(reference_images)<br/>• max_reference_images (≤6)<br/>• strategy: direct <input type=file> OR<br/>  click + button → filechooser interception<br/>• attach every slot (attach_references_every_slot)"]:::stage2
+        s2_send_prompt["send_prompt(prompt)<br/>• click prompt box, insert_text<br/>• click Send button or press Enter<br/>• baseline images/blocks captured"]:::stage2
+        s2_wait_gen["wait_for_generation()<br/>• phase 1: wait for stop button (streaming)<br/>• phase 2: wait for new reply with image<br/>  (JS_COUNT_LAST — this slot's panel only)<br/>• timeout: generation_timeout_sec (180s)<br/>• error: 'Gemini replied without an image'"]:::stage2
+        s2_collect["collect_images() — DOM fetch latest reply images<br/>fallback: download_via_button() (hover → Download button → expect_download)"]:::stage2
+        s2_watermark["clean_generated_image() → watermark remover<br/>• wm_clean.py calls wm_worker.py (subprocess, remover venv)<br/>• detect sparkle mask → inpaint with lama_fp32.onnx<br/>• overwrite file in place (tmp + atomic replace)<br/>• provenance copy → generated/_with_watermark/<br/>• status: removed / no-mark / error / skipped / disabled"]:::stage2
+        s2_save_slot["manifest slots[slot_id] = {status: ok, file,<br/>watermark, attempts, at}<br/>save_manifest() after each slot"]:::stage2
+        s2_slot_done["human_delay(between_slots_sec [15,30])<br/>between slots"]:::stage2
+        s2_slot_fail["manifest slots[slot_id] = {status: failed,<br/>error, attempts}<br/>continue to next slot"]:::stage2
+        s2_stage_status["manifest stages.generate = generated / partial / failed<br/>_write_index() → README.md upload checklist<br/>report to tracker: slots_done = N/8, status, error"]:::stage2
+    end
+
+    %% ============================ CLEAN STAGE ============================
+    subgraph S3["CLEAN STAGE (run.py clean — retro watermark removal)"]
+        direction TB
+        s3_entry[("clean() — per ASIN generated/ files")]:::stage3
+        s3_glob["glob generated/*.*"]:::stage3
+        s3_clean_each["clean_generated_image() per file<br/>(same wm_clean → wm_worker path as Stage 2)"]:::stage3
+        s3_report["clean_report.json per ASIN:<br/>{asin, updated, rows: [{file, status, ...]}]<br/>manifest stages.watermark = {status, totals}"]:::stage3
+    end
+
+    %% ============================ SUPPORT SYSTEMS ============================
+    subgraph SUP["SUPPORT SYSTEMS"]
+        direction TB
+        sup_tracker["tracker.py — CSV (data/tracking.csv) OR Google Sheets (gspread)<br/>upsert(job) by ASIN: status, title, brand, base_images_found,<br/>slots_done, bundle_path, error, updated_at"]:::sup
+        sup_config["config.py — Config class:<br/>dotted key access (cfg.get('gemini.url')),<br/>${ENV} expansion, .env load, output.root,<br/>asin_dir(), resolve()"]:::sup
+        sup_utils["utils.py — logging, ensure_dir, read/write_json,<br/>sha256_file, human_delay, retry decorator,<br/>parse_asin_list, read_asins"]:::sup
+        sup_models["models.py — ProductData, SlotSpec, JobResult<br/>dataclasses with to_dict/from_dict,<br/>prompt_fields(), bullet_block(), attribute_block()"]:::sup
+        sup_browser["browser.py — Chrome profile management:<br/>• copy_profile() — copy signed-in Chrome profile<br/>• launch_context() / launch_gemini_context()<br/>• CDP attach option (browser.cdp_url)<br/>• session_report() — check Google/Amazon cookies"]:::sup
+    end
+
+    %% ============================ OUTPUT LAYOUT ============================
+    subgraph OUT["OUTPUT LAYOUT — output/<ASIN>/"]
+        direction LR
+        out_prod[("product.json")]:::out
+        out_base[("base_images/<NN>.jpg")]:::out
+        out_prompts[("prompts/prompts.json + prompts.md")]:::out
+        out_gen[("generated/01_hero_white.png ... 08_product_guide.png")]:::out
+        out_manifest[("manifest.json")]:::out
+        out_readme[("README.md — upload checklist")]:::out
+    end
+
+    %% ============================ CONNECTIONS ============================
+    %% CLI → stages
+    cli_login -.-> cfg_yaml
+    cli_scrape --> s1_entry
+    cli_generate --> s2_entry
+    cli_clean --> s3_entry
+    cli_all --> s1_entry
+    cli_all -.-> s2_entry
+
+    %% Config feeds everything
+    cfg_yaml --> cfg_exp
+    cfg_env --> cfg_exp
+    cfg_exp -.-> s1_browser
+    cfg_exp -.-> s2_gemini_start
+    cfg_exp -.-> s2_build_bundle
+    cfg_exp -.-> s3_clean_each
+    cfg_exp -.-> sup_tracker
+    cfg_exp -.-> sup_config
+
+    %% Stage 1 flow
+    s1_entry --> s1_browser
+    s1_browser --> s1_loop
+    s1_loop --> s1_goto
+    s1_goto --> s1_cookie
+    s1_cookie --> s1_blocked
+    s1_blocked --> s1_extract
+    s1_extract --> s1_title_check
+    s1_title_check -- no --> s1_fail
+    s1_title_check -- yes --> s1_product
+    s1_product --> s1_save_product
+    s1_save_product --> s1_download
+    s1_download --> s1_save_manifest
+    s1_save_manifest --> s1_delay
+    s1_delay --> s1_loop
+
+    %% Stage 2 flow
+    s2_entry --> s2_load_product
+    s2_load_product --> s2_build_bundle
+    s2_build_bundle --> s2_dry_run
+    s2_dry_run -- yes --> s2_end2[("return stats")]
+    s2_dry_run -- no --> s2_gemini_start
+    s2_gemini_start --> s2_begin_batch
+    s2_begin_batch --> s2_slot_loop
+    s2_slot_loop --> s2_retry_loop
+    s2_retry_loop --> s2_upload_refs
+    s2_upload_refs --> s2_send_prompt
+    s2_send_prompt --> s2_wait_gen
+    s2_wait_gen --> s2_collect
+    s2_collect --> s2_watermark
+    s2_watermark --> s2_save_slot
+    s2_save_slot --> s2_slot_done
+    s2_slot_done --> s2_slot_loop
+    s2_retry_loop -- exhausted --> s2_slot_fail
+    s2_slot_fail --> s2_slot_loop
+    s2_slot_loop --> s2_stage_status
+    s2_stage_status --> s2_end2
+
+    %% Stage 3 flow
+    s3_entry --> s3_glob
+    s3_glob --> s3_clean_each
+    s3_clean_each --> s3_report
+
+    %% Output
+    s1_save_product --> out_prod
+    s1_download --> out_base
+    s2_build_bundle --> out_prompts
+    s2_save_slot --> out_gen
+    s2_save_slot --> out_manifest
+    s2_stage_status --> out_readme
+
+    %% Support
+    s1_browser -.-> sup_browser
+    s2_gemini_start -.-> sup_browser
+    s2_build_bundle -.-> sup_models
+    s2_save_slot -.-> sup_tracker
+    s3_report -.-> sup_tracker
+
+    %% ============================ STYLING ============================
+    classDef cli fill:#0B5FFF,stroke:#0B5FFF,color:#fff,font-size:13px;
+    classDef cfg fill:#F4F4F2,stroke:#0B5FFF,color:#1a1a1a,font-size:12px;
+    classDef stage1 fill:#E8F4FD,stroke:#0B5FFF,color:#1a1a1a,font-size:12px;
+    classDef stage2 fill:#FFF0E8,stroke:#FF6B35,color:#1a1a1a,font-size:12px;
+    classDef stage3 fill:#E8F8E8,stroke:#2ECC71,color:#1a1a1a,font-size:12px;
+    classDef sup fill:#F3E5F5,stroke:#9C27B0,color:#1a1a1a,font-size:12px;
+    classDef out fill:#FFFDE7,stroke:#FBC02D,color:#1a1a1a,font-size:12px;
+
+    linkStyle default stroke:#666,stroke-width:2px;
+    linkStyle 0,1,2,3,4 stroke:#0B5FFF,stroke-width:3px;

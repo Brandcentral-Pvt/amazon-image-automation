@@ -1,0 +1,22 @@
+{
+  "product_category": "apparel",
+  "product_type": "Chinon Silk Anarkali Kurta with Palazzo Set",
+  "audience": "Women",
+  "age_group": "Adult (18-35)",
+  "fashion_segment": "Ethnic",
+  "model_required": true,
+  "model_card": "Indian woman, mid-20s, warm medium skin tone, long dark hair in soft loose waves, natural minimal makeup with subtle kajal, gentle confident smile, 5'5\" slender frame wearing size M — relatable aspirational look for festive ethnic wear",
+  "background_family": "Heritage haveli courtyard with carved sandstone arches, muted terracotta floors, soft diffused daylight filtering through jali screens — premium Indian editorial aesthetic",
+  "slot_direction": {
+    "01_hero_white": "Full-length front view on pure white, model standing relaxed, kurta flare and palazzo drape falling naturally, even lighting shows true Chinon silk sheen and zari embroidery placement",
+    "02_back_view": "Full-length rear view on white, highlights back neckline, embroidery continuation, palazzo waistband and hem finish",
+    "03_side_view": "Three-quarter side angle on white, reveals Anarkali panel flare depth, side slit length, palazzo width and overall silhouette flow",
+    "04_craft_story": "Wide artisan workshop scene: product worn by model standing beside a master karigar at a wooden frame, hand-embroidering zari sequins onto Chinon silk — softly blurred background keeps kurta embroidery motifs, sequence density and palazzo border accurate",
+    "05_lifestyle": "Model seated on carved jharokha window ledge in the haveli courtyard, morning chai in hand, dupatta draped casually — authentic festive morning moment",
+    "06_styling_lookbook": "Styled with oxidised silver jhumkas, embroidered mojaris, and a contrasting silk dupatta draped over one shoulder — complete wedding-guest ensemble",
+    "07_usp_infographic": "Verified blocks: 1) Chinon Silk fabric 2) Sequence Zari Embroidery 3) Anarkali Flare Cut 4) Palazzo Bottom Included 5) Weight 290 g 6) Hand-wash Care",
+    "08_product_guide": "Size & Fit Guide: Bust / Waist / Hip / Kurta Length / Palazzo Length / Sleeve Length — model stats for reference (5'5\", 32-26-34, wearing M)"
+  },
+  "source": "nim",
+  "cast_version": 3
+}

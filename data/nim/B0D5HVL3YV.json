@@ -1,0 +1,21 @@
+{
+  "product_category": "apparel",
+  "product_type": "Popcorn Texture Spread Collar Long Sleeve Shirt",
+  "audience": "Men",
+  "age_group": "Adult (18-35)",
+  "fashion_segment": "Casual Vacation",
+  "model_required": true,
+  "model_card": "Indian male, 25-30 years, medium wheat complexion, short neat black hair, clean-shaven or light stubble, lean athletic build (chest ~38-40\"), relaxed confident smile, natural posture — product remains hero",
+  "background_family": "Sunlit coastal resort balcony with whitewashed walls, teak loungers, potted palms, and soft bokeh ocean horizon — bright, airy, aspirational vacation vibe",
+  "slot_direction": {
+    "01_hero_white": "Front ¾ view on invisible mannequin, spread collar crisp, sleeves rolled to elbow, popcorn texture clearly visible, even lighting, no shadows",
+    "02_back_view": "Straight back shot showing yoke seam, center back pleat (if any), hem line, and fabric drape — same invisible mannequin",
+    "03_side_view": "Left side profile highlighting sleeve set-in, side seam, and shirt length relative to hip",
+    "04_craft_story": "Close-ups: popcorn fabric texture macro, spread collar stitching (3 mm topstitch), mother-of-pearl button detail, rolled-sleeve tab with button, double-needle hem",
+    "05_lifestyle": "Model leaning on balcony railing, sleeves rolled, two buttons open, sea breeze lifting hem slightly — candid laugh, sunglasses tucked in collar",
+    "06_styling_lookbook": "Paired with 7\" chino shorts (sand), woven leather slides, minimalist watch — resort brunch to sunset walk transition",
+    "07_usp_infographic": "Icons + text blocks: 100% Breathable Cotton | Popcorn Texture | Spread Collar | Machine Wash | 250 g Lightweight | Made in India",
+    "08_product_guide": "Size & Fit Guide: Chest (cm) | Shoulder (cm) | Sleeve Length (cm) | Shirt Length (cm) | Fit: Regular | Model wears M (38\")"
+  },
+  "source": "nim"
+}
