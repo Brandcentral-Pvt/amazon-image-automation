@@ -500,37 +500,82 @@ class GeminiWeb:
         return bool(clicked)
 
     def _pick_image_model(self) -> bool:
-        """One pass: open the picker, select Create image, lock aspect ratio."""
-        hints = self._image_hints()
+        """One pass: open the picker, select Create image (XPath), lock aspect ratio (XPath)."""
         openers = self.cfg.get("gemini.selectors.model_picker") or [
             'button[aria-label*="model" i]', '[data-test-id*="model-selector" i]',
-            'button:has-text("Fast")', 'button:has-text("Pro")',
+            'button:has-text("Flash")', 'button:has-text("Pro")',
         ]
         if not self._click_first(openers):
             log.debug("model picker not found (skipping)")
             return False
         self.page.wait_for_timeout(1000)
-        if self._click_create_image_label():
-            self.page.wait_for_timeout(1200)
-            self._set_aspect_ratio_ui()
-            return True
-        # fallback: generic menu scan (older UI variants)
-        try:
-            options = self.page.locator('[role="menuitem"], [role="option"], button')
-            for i in range(min(options.count(), 60)):
-                opt = options.nth(i)
-                try:
-                    text = (opt.inner_text(timeout=800) or "").strip().lower()
-                except Exception:  # noqa: BLE001
-                    continue
-                if any(h in text for h in hints):
-                    opt.click(timeout=3000)
-                    log.info("selected image model: %s", text[:40])
+
+        # Use exact XPath for "Create image" option
+        create_img_sel = self._sel("create_image_option", '')
+        if create_img_sel:
+            try:
+                if create_img_sel.startswith('//') or create_img_sel.startswith('xpath='):
+                    loc = self.page.locator(f"xpath={create_img_sel}")
+                else:
+                    loc = self.page.locator(create_img_sel)
+                if loc.count() > 0 and loc.is_visible(timeout=2000):
+                    loc.first.click(timeout=3000)
+                    log.info("selected 'Create image' via XPath")
+                else:
+                    return False
+            except Exception as e:  # noqa: BLE001
+                log.debug("create_image XPath failed: %s", e)
+                return False
+        else:
+            log.debug("create_image_option selector not configured")
+            return False
+
+        self.page.wait_for_timeout(1200)
+
+        # Set aspect ratio using XPath
+        ratio = str(self.cfg.get("gemini.aspect_ratio", "") or "").strip()
+        if ratio:
+            self._set_aspect_ratio_ui_xpath()
+        return True
+
+    def _set_aspect_ratio_ui_xpath(self) -> bool:
+        """Lock aspect ratio using XPath selectors from config."""
+        ratio = str(self.cfg.get("gemini.aspect_ratio", "") or "").strip()
+        if not ratio:
+            return False
+
+        # Click aspect ratio button
+        ar_btn_sel = self._sel("aspect_ratio_button", '')
+        if ar_btn_sel:
+            try:
+                if ar_btn_sel.startswith('//') or ar_btn_sel.startswith('xpath='):
+                    loc = self.page.locator(f"xpath={ar_btn_sel}")
+                else:
+                    loc = self.page.locator(ar_btn_sel)
+                if loc.count() > 0 and loc.is_visible(timeout=2000):
+                    loc.first.click(timeout=3000)
                     self.page.wait_for_timeout(800)
+            except Exception:  # noqa: BLE001
+                pass
+
+        # Click 3:4 option
+        ar_opt_sel = self._sel("aspect_ratio_3_4", '')
+        if ar_opt_sel:
+            try:
+                if ar_opt_sel.startswith('//') or ar_opt_sel.startswith('xpath='):
+                    loc = self.page.locator(f"xpath={ar_opt_sel}")
+                else:
+                    loc = self.page.locator(ar_opt_sel)
+                if loc.count() > 0 and loc.is_visible(timeout=2000):
+                    loc.first.click(timeout=3000)
+                    log.info("aspect ratio locked via XPath: %s", ratio)
+                    self.page.wait_for_timeout(600)
                     return True
-        finally:
-            self.page.keyboard.press("Escape")
-        return False
+            except Exception:  # noqa: BLE001
+                pass
+
+        # Fallback to old method
+        return self._set_aspect_ratio_ui()
 
     # ------------------------------------------------------------- batch session
     def begin_batch(self, master: str = "", reference_images: list = None) -> None:
@@ -681,6 +726,44 @@ class GeminiWeb:
             return True
         return blocks > self._baseline_blocks and last_imgs > 0
 
+    def _dismiss_lightbox(self) -> bool:
+        """Dismiss any lightbox/modal that appears after image generation."""
+        dismissed = False
+        # Try close button
+        close_sel = self._sel("lightbox_close", '')
+        if close_sel:
+            try:
+                btn = self.page.locator(close_sel).first
+                if btn.count() > 0 and btn.is_visible(timeout=1000):
+                    btn.click(timeout=2000)
+                    self.page.wait_for_timeout(500)
+                    dismissed = True
+            except Exception:  # noqa: BLE001
+                pass
+        # Try clicking backdrop
+        if not dismissed:
+            backdrop_sel = self._sel("lightbox_backdrop", '')
+            if backdrop_sel:
+                try:
+                    backdrop = self.page.locator(backdrop_sel).first
+                    if backdrop.count() > 0 and backdrop.is_visible(timeout=500):
+                        backdrop.click(timeout=1000, position={"x": 10, "y": 10})
+                        self.page.wait_for_timeout(500)
+                        dismissed = True
+                except Exception:  # noqa: BLE001
+                    pass
+        # Press Escape as last resort
+        if not dismissed:
+            try:
+                self.page.keyboard.press("Escape")
+                self.page.wait_for_timeout(500)
+                dismissed = True
+            except Exception:  # noqa: BLE001
+                pass
+        if dismissed:
+            log.debug("dismissed lightbox/modal after generation")
+        return dismissed
+
     def wait_for_generation(self) -> None:
         timeout = int(self.cfg.get("gemini.generation_timeout_sec", 180))
         stop_sel = self._sel("stop_button")
@@ -708,6 +791,7 @@ class GeminiWeb:
                 if self._new_reply_ready():
                     self.page.wait_for_timeout(2500)
                     log.info("generation ready in %.0fs", time.time() - started)
+                    self._dismiss_lightbox()
                     return
             except Exception:  # noqa: BLE001
                 pass
