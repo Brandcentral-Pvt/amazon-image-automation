@@ -19,6 +19,15 @@ DEFAULT_COLUMNS = [
 ]
 
 
+def _col_letter(n: int) -> str:
+    """1-based column number -> spreadsheet letter (A, B, ... Z, AA, ...)."""
+    s = ""
+    while n > 0:
+        n, r = divmod(n - 1, 26)
+        s = chr(65 + r) + s
+    return s
+
+
 class Tracker:
     columns: list[str] = DEFAULT_COLUMNS
 
@@ -44,7 +53,11 @@ class CsvTracker(Tracker):
         with self.path.open("r", newline="", encoding="utf-8") as fh:
             rows = list(csv.reader(fh))
         header = rows[0] if rows else list(self.columns)
-        body = [r for r in rows[1:] if r and r[0] != job.get("asin")]
+        # locate the asin column from the header - custom column orders must not
+        # be assumed to put asin first
+        asin_idx = header.index("asin") if "asin" in header else 0
+        body = [r for r in rows[1:]
+                if r and len(r) > asin_idx and r[asin_idx] != job.get("asin")]
         body.append(self._row(job))
         with self.path.open("w", newline="", encoding="utf-8") as fh:
             writer = csv.writer(fh)
@@ -80,13 +93,15 @@ class SheetsTracker(Tracker):
             self.sheet.update("A1", [self.columns])
 
     def upsert(self, job: dict[str, Any]) -> None:
-        col_a = self.sheet.col_values(1)
+        header = self.sheet.row_values(1)
+        asin_col = header.index("asin") + 1 if "asin" in header else 1
+        col_vals = self.sheet.col_values(asin_col)
         row = self._row(job)
         try:
-            idx = col_a.index(job["asin"]) + 1
+            idx = col_vals.index(job["asin"]) + 1
         except ValueError:
-            idx = len(col_a) + 1
-        self.sheet.update(f"A{idx}:{chr(64 + len(self.columns))}{idx}", [row])
+            idx = len(col_vals) + 1
+        self.sheet.update(f"A{idx}:{_col_letter(len(self.columns))}{idx}", [row])
 
 
 def build_tracker(cfg: Config) -> Tracker:

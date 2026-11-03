@@ -104,6 +104,12 @@ class GalleryPrompt:
 
 
 # ------------------------------------------------------------------ loading
+def _excluded_categories(cfg: Config) -> set[str]:
+    """Built-in utility exclusions are ALWAYS on; user categories are added on top -
+    setting gallery.exclude_categories must never silently re-enable SYSTEM TASK CODE."""
+    return DEFAULT_EXCLUDED | {str(c).upper() for c in cfg.get("gallery.exclude_categories", [])}
+
+
 def load(path: Any, excluded: set[str] | None = None) -> list[GalleryPrompt]:
     """Flatten the compiled gallery JSON into prompt entries."""
     data = json.loads(Path(path).read_text(encoding="utf-8"))
@@ -357,7 +363,6 @@ def adapt_body(body: str, product: ProductData, model_line: str, slot_id: str) -
 def pick_slot_prompts(product: ProductData, casting: dict[str, Any],
                       scene_pool: list[GalleryPrompt], valid_keys: set[str]) -> dict[str, GalleryPrompt | None]:
     """Heuristic slot picking from the scene pool (no NIM call)."""
-    audience = casting.get("audience", "Unisex").lower()
     model_required = casting.get("model_required", False)
 
     # score each scene prompt against each slot rule
@@ -377,7 +382,6 @@ def pick_slot_prompts(product: ProductData, casting: dict[str, Any],
     ]
 
     for sid in slot_priority:
-        rule = SLOT_RULES[sid]
         best = None
         best_score = -1
 
@@ -463,7 +467,7 @@ def gallery_bodies(product: ProductData, casting: dict[str, Any], cfg: Config) -
         log.warning("gallery: file %s not found - keeping AIIE templates", path)
         return {}
 
-    excluded = {str(c).upper() for c in cfg.get("gallery.exclude_categories", [])} or DEFAULT_EXCLUDED
+    excluded = _excluded_categories(cfg)
     all_prompts = load(path, excluded)
     if not all_prompts:
         log.warning("gallery: no usable prompts in %s", path)

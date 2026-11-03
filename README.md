@@ -181,8 +181,22 @@ folder path, error). Safe to re-run: rows update instead of duplicating.
 - **Resumable**: `manifest.json` records each slot. Re-running skips finished slots
   (`--force` overrides). A failed slot doesn't kill the ASIN.
 - **Gemini UI changes**: every selector lives in `config.yaml → gemini.selectors`.
+  When Google ships a UI change and a selector stops matching, run
+  `python run.py probe --interactive` (headed) and fix the selector from the dumped
+  `logs/gemini/probe_*.json` (button/file-input inventory + DOM + screenshot) instead
+  of guesswork. If `create_image_option` breaks, the code automatically falls back to
+  clicking the `div.gem-menu-item-label` matching `gemini.image_model_hints`.
   Two download strategies (`dom_fetch` default, `button` fallback) because Google
-  reworks that DOM regularly.
+  reworks that DOM regularly. A fresh chat is started explicitly via
+  `selectors.new_chat_button` so a batch never lands on the previous chat.
+- **Generated-image accuracy gate** (`gemini.image_check`): every captured image is
+  verified before its slot counts as ok — decodable, portrait, aspect within
+  tolerance of 3:4 (UI) or 1600×1920 (panel spec), longest side ≥ 1000 px (Amazon
+  minimum), not an unchanged echo of an uploaded reference, not a duplicate of an
+  earlier panel in the same chat. Rejections raise and go through the normal slot
+  retry path (fresh chat + re-upload). The composer is also checked to have actually
+  received the prompt text before sending, and uploads report the *verified* preview
+  count (zero attachments = hard error, never a silent text-only send).
 - **No key, no cost**: uses your own Gemini session. Trade-off: slower and
   UI-dependent — if you later get an API key, the pipeline is structured so
   `src/gemini_web.py` is the only file that has to change to a `generateContent` call.
@@ -208,7 +222,7 @@ src/scraper.py          Playwright Amazon scraper, hi-res URL rewriting
 src/downloader.py       base image download, validation, dedupe
 src/prompts.py          slot loader + prompt builder (compliance baked in)
 src/prompt_gallery.py   gallery sourcing: local model pick + heuristic adapt + cache
-src/nim_client.py       NVIDIA NIM client (disabled; local fallback only)
+src/nim_client.py       NVIDIA NIM client (optional via nim.enabled + NIM_API_KEY; local heuristic fallback otherwise)
 src/gemini_web.py       Gemini web driver: upload, prompt, wait, auto-download
 src/pipeline.py         orchestration, manifest, resume, per-ASIN reports
 src/wm_worker.py        watermark remover worker (near-match fallback included)

@@ -23,7 +23,7 @@ from pathlib import Path
 from typing import Any
 
 from .config import Config
-from .utils import log
+from .utils import iter_real_files, log
 
 WORKER = Path(__file__).resolve().parent / "wm_worker.py"
 
@@ -32,12 +32,9 @@ IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".webp", ".bmp"}
 
 
 def iter_generated_images(gen_dir: Path) -> list[Path]:
-    """Every IMAGE file in the generated/ dir (skips clean_report.json etc.)."""
-    gen_dir = Path(gen_dir)
-    if not gen_dir.exists():
-        return []
-    return sorted(p for p in gen_dir.iterdir()
-                  if p.is_file() and p.suffix.lower() in IMAGE_EXTS)
+    """Every IMAGE file in the generated/ dir (skips clean_report.json, dotfiles)."""
+    return [p for p in iter_real_files(gen_dir)
+            if p.suffix.lower() in IMAGE_EXTS]
 
 
 def _engine_dir(cfg: Config) -> str:

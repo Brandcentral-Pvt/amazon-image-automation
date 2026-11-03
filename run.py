@@ -7,6 +7,7 @@
   python run.py clean   --asins asins.txt   # watermark-clean already-generated images
   python run.py all     --asins asins.txt   # full pipeline
   python run.py one     --asin B0XXXXXXXX   # single ASIN, full pipeline
+  python run.py probe [--interactive]       # dump Gemini page diagnostics (fix selectors from data)
 
 Handy flags: --dry-run (prompts only, no Gemini calls) --headed (watch the browser)
              --force (regenerate finished slots) --limit 5 --config other.yaml
@@ -77,7 +78,12 @@ def cmd_scrape(args) -> int:
     from src.pipeline import Pipeline
 
     cfg = load_config(args.config)
-    return 0 if Pipeline(cfg, args.dry_run, args.force).scrape(_asins(args)) else 0
+    products = Pipeline(cfg, args.dry_run, args.force).scrape(_asins(args))
+    failed = sorted(a for a, p in products.items() if p.scrape_status != "ok")
+    if failed:
+        log.error("scrape failed for %d ASIN(s): %s", len(failed), ", ".join(failed))
+        return 1
+    return 0
 
 
 def cmd_generate(args) -> int:
@@ -101,9 +107,10 @@ def cmd_clean(args) -> int:
     for asin in _asins(args):
         adir = Path(cfg.asin_dir(asin))
         gen_dir = adir / "generated"
-        files = sorted(p for p in gen_dir.glob("*.*") if p.is_file())
-        files = [f for f in files if f.suffix.lower() in (
-            ".png", ".jpg", ".jpeg", ".webp", ".bmp")]
+        from src.utils import iter_real_files
+        from src.wm_clean import IMAGE_EXTS
+
+        files = [f for f in iter_real_files(gen_dir) if f.suffix.lower() in IMAGE_EXTS]
         if not files:
             log.info("%s: no generated images (run generate first)", asin)
             continue
@@ -144,6 +151,34 @@ def cmd_all(args) -> int:
     return 0 if not stats.get("failed") else 1
 
 
+def cmd_probe(args) -> int:
+    """Open Gemini in the persistent profile and dump page diagnostics.
+
+    Writes logs/gemini/probe_*.{json,html,png}: every button/file input on the
+    live page + screenshot. With --interactive you can click around in the
+    headed browser first; press Enter to dump a second ("probe_final") report.
+    Use this when Google ships a UI change and a selector in config.yaml stops
+    matching - fix the selector from the dumped JSON instead of guesswork.
+    """
+    from src.gemini_web import GeminiWeb
+
+    cfg = load_config(args.config)
+    headless = bool(cfg.get("browser.headless", True)) and not args.headed
+    with GeminiWeb(cfg, headless=headless) as gem:
+        report = gem.dump_diagnostics("probe")
+        log.info("probe: url=%s image_count=%s buttons=%d -> %s",
+                 report.get("url"), report.get("image_count"),
+                 len(report.get("buttons") or []), report.get("json"))
+        if getattr(args, "interactive", False):
+            log.info("interactive: click around in the browser window, then press Enter here")
+            try:
+                input("Press Enter to dump the final report... ")
+            except EOFError:
+                pass
+            gem.dump_diagnostics("probe_final")
+    return 0
+
+
 def _common(sp: argparse.ArgumentParser) -> None:
     """Flags usable before OR after the subcommand (SUPPRESS keeps the global value)."""
     sp.add_argument("--config", default=argparse.SUPPRESS)
@@ -175,6 +210,11 @@ def build_parser() -> argparse.ArgumentParser:
 
     _common(sub.add_parser("one", help="single ASIN, full pipeline"))
     _common(sub.add_parser("clean", help="pass generated images through the watermark remover"))
+
+    sp = sub.add_parser("probe", help="dump Gemini page diagnostics (buttons, file inputs, DOM, screenshot)")
+    _common(sp)
+    sp.add_argument("--interactive", action="store_true",
+                    help="headed: click around in the browser, press Enter to dump a final report")
     return p
 
 
@@ -197,6 +237,8 @@ def main(argv: list[str] | None = None) -> int:
             return cmd_all(args)
         if args.cmd == "clean":
             return cmd_clean(args)
+        if args.cmd == "probe":
+            return cmd_probe(args)
     except KeyboardInterrupt:
         log.warning("interrupted")
         return 130

@@ -89,14 +89,46 @@ gemini:
   upload_wait_sec: 8
   between_slots_sec: [15, 30]  # generous pacing - Google /sorry-blocks fast bursts
   block_wait_sec: 120          # cool-down when Google shows a /sorry traffic page
-  # Gemini UI selectors (edit here when Google ships UI changes - no code change needed)
+  # page-body markers that also mean "rate-limited" (Google sometimes blocks inline)
+  block_markers:
+    - "/sorry/"
+    - "unusual traffic"
+    - "detected unusual traffic"
+  # accuracy gate applied to EVERY captured image before a slot counts as done:
+  # decodable, portrait, aspect within tolerance of 3:4 (UI) or 1600x1920 (panel),
+  # longest side >= min_long_side_px (Amazon needs >= 1000 px), not an unchanged
+  # upload, not a duplicate of an earlier panel. Rejections retry via slot_retries.
+  image_check:
+    enabled: true
+    min_long_side_px: 1000
+    aspect_tolerance: 0.06
+    reject_reference_echo: true
+    reject_duplicate_panel: true
+  # Gemini UI selectors (edit here when Google ships UI changes - no code change needed.
+  # When a selector stops matching, run `python run.py probe --interactive` and copy the
+  # real element from logs/gemini/probe_*.json instead of guessing.)
   selectors:
+    new_chat_button: 'button[aria-label*="New chat" i], button:has-text("New chat")'
     prompt_box: 'div[contenteditable="true"][role="textbox"], rich-textarea div[contenteditable="true"]'
     file_input: 'input[type="file"]'
     send_button: 'button[aria-label*="Send"], button.send-button'
-    stop_button: 'button[aria-label*="Stop"], button[aria-label*="stop response"]'
-    response_block: 'model-response, .model-response-text, message-content'
+    stop_button: 'button[aria-label*="Stop" i], button[aria-label*="stop response" i]'
+    response_block: 'model-response, .model-response-text, message-content'   # informational; the JS counters hardcode these
     generated_image: 'model-response img, message-content img'
+    # ---- exact XPath selectors captured 2026-11-03 (very brittle - element IDs change
+    # ---- with every Gemini deploy; if image mode stops engaging, re-probe and update).
+    # ---- When create_image_option is missing/broken the code automatically falls back
+    # ---- to clicking the div.gem-menu-item-label whose text matches image_model_hints.
+    create_image_option: "//*[@id='cdk-overlay-0']/mat-card/mat-action-list/div[2]/toolbox-drawer/div/div/toolbox-drawer-item[1]/button/span/span"
+    aspect_ratio_button: "//*[@id='xap-skip-link-target']/div/chat-window/div[2]/input-container/div/input-area-v2/div/fieldset/div/div[4]/input-companion/div/input-companion-chip/gem-button/button/span[3]"
+    aspect_ratio_3_4: "//*[@id='mat-menu-panel-11']/div/input-companion-item[3]/div"
+    # lightbox that sometimes opens over a finished generation (Escape is the last resort)
+    lightbox_close: 'button[aria-label*="Close" i]'
+    lightbox_backdrop: ''
+    # optional overrides - the code has built-in defaults for these three:
+    # attach_buttons: ['button[aria-label*="Add files" i]', ...]
+    # upload_menu_items: ['text="Upload files"', ...]
+    # model_picker: ['button[aria-label*="model" i]', ...]
     consent_buttons:
       - 'button:has-text("I agree")'
       - 'button:has-text("Accept all")'

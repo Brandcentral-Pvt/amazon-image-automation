@@ -10,7 +10,8 @@ from .downloader import download_base_images
 from .models import ProductData
 from .prompts import build_bundle
 from .tracker import build_tracker
-from .utils import ensure_dir, human_delay, log, read_json, rel, write_json
+from .utils import (aspect_targets, ensure_dir, human_delay, iter_real_files, log,
+                    read_json, rel, verify_generated_image, write_json)
 from .wm_clean import clean_generated_image, sweep_generated
 
 
@@ -48,8 +49,8 @@ class Pipeline:
             "status": status,
             "product_title": (product.title if product else manifest.get("product", {}).get("title", ""))[:250],
             "brand": (product.brand if product else manifest.get("product", {}).get("brand", "")),
-            "base_images_found": len(list((self.asin_dir(asin) / "base_images").glob("*.[jJpP][pnN]*")))
-            if (self.asin_dir(asin) / "base_images").exists() else 0,
+            "base_images_found": len(iter_real_files(self.asin_dir(asin) / "base_images",
+                                                     "*.[jJpP][pnN]*")),
             "slots_done": f"{slots_done}/8",
             "bundle_path": rel(self.asin_dir(asin)),
             "error": error[:400],
@@ -109,7 +110,7 @@ class Pipeline:
                 log.error("%s: scrape was not successful - skipping", asin)
                 continue
             bundle, master = build_bundle(product, adir, self.cfg, extra_notes=extra_notes)
-            refs = sorted((adir / "base_images").glob("*.*")) if (adir / "base_images").exists() else []
+            refs = iter_real_files(adir / "base_images")
             if not refs:
                 log.warning("%s: no base images found; prompts will run text-only", asin)
             prepared[asin] = (product, bundle, refs, master)
@@ -148,10 +149,15 @@ class Pipeline:
             slot = item["slot_id"]
             dest = gen_dir / item["target_file"]
             prev = manifest["slots"].get(slot, {})
-            if prev.get("status") == "ok" and dest.exists() and not self.force:
-                log.info("%s %s: already done, skipping", asin, slot)
-                ok += 1
-                continue
+            if prev.get("status") == "ok" and not self.force:
+                # a browser download may land with the server's own extension
+                # (.jpg/.webp), so trust the manifest-recorded file, then the
+                # nominal target name
+                recorded = adir / prev["file"] if prev.get("file") else None
+                if (recorded and recorded.exists()) or dest.exists():
+                    log.info("%s %s: already done, skipping", asin, slot)
+                    ok += 1
+                    continue
             pending.append(item)
 
         if not pending:
@@ -196,6 +202,21 @@ class Pipeline:
                     # the image is only "done" once the sparkle remover has
                     # passed over it - cleaned in place, original kept for provenance
                     wm = clean_generated_image(saved, self.cfg)
+                    # final gate: the cleaned file must still decode and satisfy the
+                    # image spec (portrait, aspect, >= min long side) - otherwise the
+                    # slot is NOT ok and the retry loop regenerates it
+                    vcheck = self.cfg.get("gemini.image_check", {}) or {}
+                    if vcheck.get("enabled", True):
+                        vres = verify_generated_image(
+                            saved,
+                            targets=aspect_targets(self.cfg),
+                            min_long_side=int(vcheck.get("min_long_side_px", 1000)),
+                            aspect_tol=float(vcheck.get("aspect_tolerance", 0.06)),
+                        )
+                        if not vres["ok"]:
+                            raise RuntimeError(
+                                f"final image check failed: {vres['reason']} "
+                                f"({vres['w']}x{vres['h']})")
                     manifest["slots"][slot] = {
                         "status": "ok",
                         "file": rel(saved, adir),
@@ -276,7 +297,7 @@ class Pipeline:
             lines.append(f"| | {slot_id} | `{file_rel}` | {data.get('attempts', 1)} | "
                          f"{wm} | {data.get('status')} |")
         lines += ["", "## Base images used as references", ""]
-        for p in sorted((adir / "base_images").glob("*.*")):
+        for p in iter_real_files(adir / "base_images"):
             lines.append(f"- `base_images/{p.name}`")
         (adir / "README.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
 
