@@ -423,12 +423,12 @@ class ChatGPTWeb:
     # ------------------------------------------------------------- wait for generation
     def wait_for_generation(self) -> None:
         timeout = int(self.cfg.get("chatgpt.generation_timeout_sec", 300))
-        deadline = time.time() + timeout
-        started = time.time()
+        deadline = time.monotonic() + timeout
+        started = time.monotonic()
 
         self.page.wait_for_timeout(3000)
         stable = 0
-        while time.time() < deadline:
+        while time.monotonic() < deadline:
             try:
                 # A visible stop control indicates that the response is still streaming.
                 stop = self.page.locator('button[data-testid="stop-button"], button[aria-label*="Stop generating" i]')
@@ -436,7 +436,7 @@ class ChatGPTWeb:
                 if self._new_reply_ready() and not running:
                     stable += 1
                     if stable >= 3:
-                        log.info("generation ready in %.0fs", time.time() - started)
+                        log.info("generation ready in %.0fs", time.monotonic() - started)
                         self._dismiss_lightbox()
                         return
                 else:
@@ -453,7 +453,7 @@ class ChatGPTWeb:
         raise ChatGPTError(
             "ChatGPT replied without an image"
             + (f": \"{excerpt}\"" if excerpt else "")
-            + " | Check if GPT-4o triggered DALL-E 3"
+            + " | Verify that ChatGPT produced an image in this conversation"
         )
 
     # ------------------------------------------------------------- lightbox dismiss
@@ -692,11 +692,11 @@ class ChatGPTWeb:
 def chatgpt_login(cfg: Config) -> int:
     """One-time ChatGPT login - saves session to Chrome profile."""
     from playwright.sync_api import sync_playwright
-    from .browser import launch_gemini_context
+    from .browser import launch_chatgpt_context
 
     log.info("Opening browser - sign in to ChatGPT, then press Enter.")
     with sync_playwright() as pw:
-        ctx, _ = launch_gemini_context(pw, cfg, headless=False)
+        ctx, _ = launch_chatgpt_context(pw, cfg, headless=False)
         page = ctx.pages[0] if ctx.pages else ctx.new_page()
         url = cfg.get("chatgpt.url", "https://chatgpt.com/g/g-p-6aeafd8cf6148191b9034dbaaf247ba1")
         page.goto(url, wait_until="domcontentloaded")
