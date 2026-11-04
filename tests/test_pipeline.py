@@ -4,6 +4,7 @@ No network, no Playwright needed - uses a mock Gemini driver.
 from __future__ import annotations
 
 import json
+import shutil
 import sys
 from pathlib import Path
 
@@ -76,6 +77,9 @@ def make_product(asin="B0TEST01"):
 def test_rerun_skips_completed_slots():
     """Second generate() with force=False skips slots already marked ok."""
     cfg = make_cfg()
+    test_root = Path(cfg.get("output.root"))
+    if test_root.exists():
+        shutil.rmtree(test_root)
     pipe = Pipeline(cfg, dry_run=False, force=False)
     adir = Path(cfg.asin_dir("B0TEST01"))
     adir.mkdir(parents=True, exist_ok=True)
@@ -106,6 +110,9 @@ def test_rerun_skips_completed_slots():
 def test_force_rerun_regenerates_slots():
     """force=True regenerates all slots even if already marked ok."""
     cfg = make_cfg()
+    test_root = Path(cfg.get("output.root"))
+    if test_root.exists():
+        shutil.rmtree(test_root)
     pipe = Pipeline(cfg, dry_run=False, force=True)
     adir = Path(cfg.asin_dir("B0FORCE01"))
     adir.mkdir(parents=True, exist_ok=True)
