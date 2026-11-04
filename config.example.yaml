@@ -1,14 +1,287 @@
 generation:
-  provider: chatgpt  # Valid providers: gemini, chatgpt
+  provider: chatgpt   # Choose 'gemini' to retain existing generator
 
-browser:
-  headless: false  # Keep interactive until browser smoke tests pass
+# =====================================================================
+#  Amazon ASIN -> 8-image compliant bundle  |  master configuration
+#  Copy to:  config.yaml   (env vars override anything in ${...} form)
+# =====================================================================
 
-output:
-  root: output
-
+# ---------------------------------------------------------------- amazon
 amazon:
-  domain: amazon.in
+  # .in / .com / .co.uk / .de / .ae ...
+  domain: "amazon.in"
+  locale: "en-IN"
+  postal_code: ""              # optional: pin delivery location for consistent pricing
+  max_gallery_images: 12        # how many base images to pull per ASIN
+  min_image_px: 500            # reject base images smaller than this
+  scroll_passes: 4             # lazy-load scrolling passes
+  page_timeout_ms: 45000
+  # polite, human-ish pacing between ASINs (seconds)
+  delay_between_asins: [4, 9]
+
+# ---------------------------------------------------------------- browser
+browser:
+  headless: false
+  # Persisted Chrome profile -> keeps Amazon + Google sessions alive
+  user_data_dir: ".browser-profile"
+  channel: "chromium"          # chromium | chrome
+  user_agent: ""               # blank = playwright default
+  proxy: ""                    # http://user:pass@host:port
+  viewport: { width: 1440, height: 900 }
+
+# ---------------------------------------------------------------- scraping
+scrape:
+  retries: 3
+  retry_backoff_sec: 12
+  captcha_markers:
+    - "Enter the characters you see below"
+    - "Type the characters you see in this image"
+    - "/errors/validateCaptcha"
+    - "api-services-support@amazon.com"
+
+# ---------------------------------------------------------------- output
+output:
+  root: "output"
+  # per-ASIN layout
+  #   output/<ASIN>/
+  #     product.json
+  #     base_images/01.jpg ...
+  #     prompts/prompts.json + prompts.md
+  #     generated/01_main_white.png ...
+  #     manifest.json
+  keep_base_images: true
+
+# ---------------------------------------------------------------- gemini web
+gemini:
+  enabled: true
+  # /images = dedicated image-generation surface (composer starts in image mode).
+  # When the UI changes, capture fresh selectors with:
+  #   python run.py probe --url https://gemini.google.com/images --steps --interactive
+  url: "https://gemini.google.com/images"
+  # ---- use your OWN signed-in Chrome profile (no separate sign-in screen, ever) ----
+  use_own_chrome_profile: true
+  chrome_profile_name: "Chirag"      # name shown in Chrome's profile picker
+  chrome_channel: "chrome"           # real Chrome is required to read Chrome cookies
+  user_data_dir: ".browser-profile-gemini"   # isolated copy (scraping keeps .browser-profile)
+  chrome_user_data_dir: ""           # blank = autodetect (LOCALAPPDATA\Google\Chrome\User Data)
+  recopy_chrome_profile: false       # set true to refresh the copy from Chrome
+  # model picker label (left as-is if not found)
+  model_hint: "2.5 Flash"      # e.g. "Nano Banana" / "2.5 Flash" / "Imagen"
+  max_reference_images: 6      # base images attached per prompt (Gemini caps uploads)
+  attach_references_every_slot: true  # re-attach the references before EVERY panel
+  # force the image-capable model in the picker before every chat - Gemini often
+  # lands on the default model and replies with text instead of an image
+  ensure_image_model: true
+  # STRICT: re-select "Create image" before EVERY image prompt, not only at chat
+  # creation - a continuous chat can silently fall back to the text model
+  ensure_image_model_every_slot: true
+  # after selecting "Create image" in the picker, also lock the UI aspect ratio
+  # (Aspect ratio -> 3:4). Per-chat UI state resets, so this runs on every chat.
+  aspect_ratio: "3:4"
+  image_model_hints:           # matched in the picker list (first match wins)
+    - "create images"
+    - "nano banana"
+    - "imagen"
+    - "image generation"
+    - "image"
+  # fallback retries for a failed slot: fresh chat + re-seeded master each attempt
+  slot_retries: 2
+  slot_retry_delay_sec: [10, 20]
+  new_chat_per_slot: false     # ONE continuous chat per ASIN batch (consistency)
+  send_master_prompt: false     # disabled - slot prompts carry all instructions
+  master_ack_timeout_sec: 150  # (unused)
+  # seconds to wait for one generation before giving up
+  generation_timeout_sec: 180
+  upload_wait_sec: 8
+  between_slots_sec: [15, 30]  # generous pacing - Google /sorry-blocks fast bursts
+  block_wait_sec: 120          # cool-down when Google shows a /sorry traffic page
+  # page-body markers that also mean "rate-limited" (Google sometimes blocks inline)
+  block_markers:
+    - "/sorry/"
+    - "unusual traffic"
+    - "detected unusual traffic"
+  # accuracy gate applied to EVERY captured image before a slot counts as done:
+  # decodable, portrait, aspect within tolerance of 3:4 (UI) or 1600x1920 (panel),
+  # longest side >= min_long_side_px (Amazon needs >= 1000 px), not an unchanged
+  # upload, not a duplicate of an earlier panel. Rejections retry via slot_retries.
+  image_check:
+    enabled: true
+    min_long_side_px: 1000
+    aspect_tolerance: 0.06
+    reject_reference_echo: true
+    reject_duplicate_panel: true
+  # Gemini UI selectors (edit here when Google ships UI changes - no code change needed.
+  # To capture selectors for the CURRENT page (e.g. /images), run:
+  #   python run.py probe --url https://gemini.google.com/images --steps --interactive --headed
+  # then review logs/gemini/selectors.suggested.yaml and the step_*.json/html dumps,
+  # and paste the winners below.)
+  selectors:
+    new_chat_button: 'button[aria-label*="New chat" i], button:has-text("New chat")'
+    download_button: 'button[aria-label*="Download" i], [data-test-id*="download" i]'
+    prompt_box: 'div[contenteditable="true"][role="textbox"], rich-textarea div[contenteditable="true"]'
+    file_input: 'input[type="file"]'
+    send_button: 'button[aria-label*="Send"], button.send-button'
+    stop_button: 'button[aria-label*="Stop" i], button[aria-label*="stop response" i]'
+    response_block: 'model-response, .model-response-text, message-content'   # informational; the JS counters hardcode these
+    generated_image: 'model-response img, message-content img'
+    # ---- exact XPath selectors captured 2026-11-03 (very brittle - element IDs change
+    # ---- with every Gemini deploy; if image mode stops engaging, re-probe and update).
+    # ---- When create_image_option is missing/broken the code automatically falls back
+    # ---- to clicking the div.gem-menu-item-label whose text matches image_model_hints.
+    create_image_option: "//*[@id='cdk-overlay-0']/mat-card/mat-action-list/div[2]/toolbox-drawer/div/div/toolbox-drawer-item[1]/button/span/span"
+    aspect_ratio_button: "//*[@id='xap-skip-link-target']/div/chat-window/div[2]/input-container/div/input-area-v2/div/fieldset/div/div[4]/input-companion/div/input-companion-chip/gem-button/button/span[3]"
+    aspect_ratio_3_4: "//*[@id='mat-menu-panel-11']/div/input-companion-item[3]/div"
+    # lightbox that sometimes opens over a finished generation (Escape is the last resort)
+    lightbox_close: 'button[aria-label*="Close" i]'
+    lightbox_backdrop: ''
+    # optional overrides - the code has built-in defaults for these three:
+    # attach_buttons: ['button[aria-label*="Add files" i]', ...]
+    # upload_menu_items: ['text="Upload files"', ...]
+    # model_picker: ['button[aria-label*="model" i]', ...]
+    consent_buttons:
+      - 'button:has-text("I agree")'
+      - 'button:has-text("Accept all")'
+      - 'button:has-text("Got it")'
+
+# ---------------------------------------------------------------- image backend
+# Which web UI generates the 8 panels. The pipeline is backend-agnostic:
+#   gemini_web (default) -> gemini.url below (https://gemini.google.com/images)
+#   arena_web            -> https://arena.ai/image (Arena Image Arena, battle mode)
+image:
+  backend: "gemini_web"        # gemini_web | arena_web
+  # optional top-level override of the generated-image accuracy gate
+  # (default: <backend>.image_check - see gemini.image_check / arena.image_check)
+  # image_check: {enabled: true, min_long_side_px: 1000, aspect_tolerance: 0.06, ...}
+
+# ---------------------------------------------------------------- Arena.ai Image Arena
+# Used when image.backend: arena_web. Battle mode returns TWO images per prompt -
+# arena.pick chooses which to keep. fit_panel center-crops + resizes each output
+# to the studio panel (studio.panel_width x studio.panel_height) so the accuracy
+# gate and the Amazon layout stay uniform.
+# Capture real selectors from the live page with:
+#   python run.py probe --backend arena --url https://arena.ai/image --steps --interactive --headed
+#   -> logs/arena/selectors.suggested.yaml + step_*.json/html dumps
+arena:
+  url: "https://arena.ai/image"
+  pick: "largest"              # largest | left | right
+  fit_panel: true
+  max_reference_images: 4
+  attach_references_every_slot: true
+  on_upload_failure: "fail"    # fail | continue without references
+  generation_timeout_sec: 240
+  upload_wait_sec: 6
+  upload_timeout_sec: 25
+  between_slots_sec: [10, 20]
+  block_wait_sec: 120          # cool-down on Cloudflare/challenge pages
+  block_markers:
+    - "verify you are human"
+    - "challenge-platform"
+    - "unusual traffic"
+    - "rate limit"
+  selectors:
+    prompt_box: 'textarea, [contenteditable="true"]'
+    send_button: 'button[type="submit"], button:has-text("Generate")'
+    stop_button: ''
+    file_input: 'input[type="file"]'
+    generated_image: 'img'
+    download_button: 'button[aria-label*="Download" i], [data-test-id*="download" i]'
+    new_chat_button: ''
+    attach_buttons:
+      - 'button[aria-label*="Add" i]'
+      - 'button[aria-label*="Upload" i]'
+    upload_menu_items:
+      - 'text="Upload files"'
+      - 'text="Upload image"'
+    consent_buttons:
+      - 'button:has-text("Accept")'
+      - 'button:has-text("Accept all")'
+      - 'button:has-text("Got it")'
+  image_check:                 # same accuracy gate as gemini.image_check
+    enabled: true
+    min_long_side_px: 1000
+    aspect_tolerance: 0.06
+    reject_reference_echo: true
+    reject_duplicate_panel: true
+
+# ---------------------------------------------------------------- NVIDIA NIM
+# Dynamic AIIE casting: detects the product type and picks suitable models for
+# clothing (kids/women/men), environments and per-panel direction.
+nim:
+  enabled: true
+  api_key: "${NIM_API_KEY}"    # real key lives in .env - never hardcode it here
+  base_url: "https://integrate.api.nvidia.com/v1"
+  model: "openai/gpt-oss-20b"
+  fallback_models:
+    - "openai/gpt-oss-20b"
+  timeout_sec: 90
+  temperature: 0.3
+  max_tokens: 1600
+  between_calls_sec: 1.0       # polite pacing between NIM requests (cached per ASIN)
+
+# ---------------------------------------------------------------- AIIE studio
+# prompts/aiie_studio.yaml = the RTF "Amazon Image Intelligence Engine 8P" pack
+studio:
+  templates: "prompts/aiie_studio.yaml"
+  panel_aspect: "3:4"
+  panel_width: 1600
+  panel_height: 1920
+
+# ------------------------------------------------------------ prompt gallery
+# Per-slot prompt BODIES come from the compiled prompt library (the user's
+# ~280-prompt gallery) instead of the fixed AIIE panel text. NIM picks the best
+# gallery prompt per slot and adapts it to this exact product/persona; the AIIE
+# compliance wrapper (product truth, identity lock, 3:4 output spec) stays.
+# Any failure -> that slot keeps its classic AIIE body automatically.
+gallery:
+  enabled: true
+  path: "DOCUMENTATION/all_prompts_compilation.json"
+  exclude_categories:            # utility junk, never image prompts
+    - "SYSTEM TASK CODE"
+  pool_size: 40                  # candidates (title+preview) shown to NIM per pick
+  # the ONE slot allowed a macro/close-up gallery prompt (craft story never is)
+  detail_closeup_slot: "08_product_guide"
+  nim_pick_tokens: 1400          # gemini-pick call budget
+  nim_adapt_tokens: 6000         # body-rewrite call budget (8 full texts out)
+
+# --------------------------------------------------------- watermark cleanup
+# Every generated image passes through the Veo/Gemini sparkle remover engine
+# BEFORE it counts as final: cleaned image replaces the file in place, the
+# pre-clean pixels go to generated/_with_watermark/ for provenance.
+# engine_dir points at the local remover app (wm_core.py lives there).
+watermark:
+  enabled: true
+  engine_dir: "G:\\veo-watermark-remover\\veo-watermark-remover\\local_app"
+  python: ""                    # blank = use the remover's own venv python
+  model: ""                     # blank = use <engine_dir>/models/lama_fp32.onnx
+  device: "cpu"                 # auto | cpu | cuda
+  threads: 0                    # 0 = onnxruntime default thread count
+  timeout_sec: 180              # per image
+
+# ---------------------------------------------------------------- tracking sheet
+sheet:
+  enabled: true
+  backend: "csv"               # csv  |  gspread
+  csv_path: "data/tracking.csv"
+  spreadsheet_id: ""           # from the Google Sheet URL
+  worksheet_name: "ASIN Jobs"
+  credentials_file: "service-account.json"   # or set GOOGLE_APPLICATION_CREDENTIALS
+  columns:
+    - asin
+    - status
+    - product_title
+    - brand
+    - base_images_found
+    - slots_done
+    - bundle_path
+    - error
+    - updated_at
+
+# ---------------------------------------------------------------- image specs
+image_spec:
+  size: 3000                   # square px requested from the model
+  aspect: "1:1"
+  color_space: "sRGB"
+  min_bytes: 60000             # sanity check on downloaded files
 
 # ---------------------------------------------------------------- ChatGPT
 # Custom GPT image generation (GPT-4o + DALL-E 3)
@@ -19,11 +292,11 @@ chatgpt:
   url: "https://chatgpt.com/g/g-p-6aeafd8cf6148191b9034dbaaf247ba1/project"
   # Chrome profile for persistent login - use existing logged-in profile
   use_own_chrome_profile: true
-  chrome_profile_name: "Profile 4"
+  chrome_profile_name: "Default"
   chrome_channel: "chrome"
-  chrome_executable_path: "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe"  # Full path to Chrome executable
+  chrome_executable_path: ""  # Blank uses Playwright Chrome channel discovery
   user_data_dir: ".browser-profile-chatgpt"
-  chrome_user_data_dir: "C:\\Users\\Admin\\AppData\\Local\\Google\\Chrome\\User Data"  # Full path to Chrome User Data
+  chrome_user_data_dir: ""  # Blank autodetects the current OS Chrome directory
   recopy_chrome_profile: false
   max_reference_images: 10
   upload_wait_sec: 10
