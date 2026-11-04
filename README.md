@@ -181,14 +181,20 @@ folder path, error). Safe to re-run: rows update instead of duplicating.
 - **Resumable**: `manifest.json` records each slot. Re-running skips finished slots
   (`--force` overrides). A failed slot doesn't kill the ASIN.
 - **Gemini UI changes**: every selector lives in `config.yaml → gemini.selectors`.
-  When Google ships a UI change and a selector stops matching, run
-  `python run.py probe --interactive` (headed) and fix the selector from the dumped
-  `logs/gemini/probe_*.json` (button/file-input inventory + DOM + screenshot) instead
-  of guesswork. If `create_image_option` breaks, the code automatically falls back to
-  clicking the `div.gem-menu-item-label` matching `gemini.image_model_hints`.
-  Two download strategies (`dom_fetch` default, `button` fallback) because Google
-  reworks that DOM regularly. A fresh chat is started explicitly via
-  `selectors.new_chat_button` so a batch never lands on the previous chat.
+  The default page is now `https://gemini.google.com/images` (dedicated image-generation
+  surface; override with `gemini.url` / `GEMINI_URL`). To capture selectors for the
+  current page, run headed and walk each action:
+  `python run.py probe --url https://gemini.google.com/images --steps --interactive --headed`
+  — this dumps one tagged report per UI action (`step_1_home`, `step_2_attach`,
+  `step_3_model_picker`, `step_4_aspect`, `step_5_image`) plus a merged
+  `logs/gemini/selectors.suggested.yaml` mapping every `gemini.selectors.*` key to
+  concrete candidates (each button dump includes a truncated `outerHTML` for deriving
+  exact XPaths). Paste the winners into `config.yaml`. If `create_image_option` breaks,
+  the code automatically falls back to clicking the `div.gem-menu-item-label` matching
+  `gemini.image_model_hints`. Two download strategies (`dom_fetch` default, `button`
+  fallback via `selectors.download_button`) because Google reworks that DOM regularly.
+  A fresh chat is started explicitly via `selectors.new_chat_button` so a batch never
+  lands on the previous chat.
 - **Generated-image accuracy gate** (`gemini.image_check`): every captured image is
   verified before its slot counts as ok — decodable, portrait, aspect within
   tolerance of 3:4 (UI) or 1600×1920 (panel spec), longest side ≥ 1000 px (Amazon

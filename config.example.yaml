@@ -51,7 +51,10 @@ output:
 # ---------------------------------------------------------------- gemini web
 gemini:
   enabled: true
-  url: "https://gemini.google.com/app"
+  # /images = dedicated image-generation surface (composer starts in image mode).
+  # When the UI changes, capture fresh selectors with:
+  #   python run.py probe --url https://gemini.google.com/images --steps --interactive
+  url: "https://gemini.google.com/images"
   # ---- use your OWN signed-in Chrome profile (no separate sign-in screen, ever) ----
   use_own_chrome_profile: true
   chrome_profile_name: "Chirag"      # name shown in Chrome's profile picker
@@ -105,10 +108,13 @@ gemini:
     reject_reference_echo: true
     reject_duplicate_panel: true
   # Gemini UI selectors (edit here when Google ships UI changes - no code change needed.
-  # When a selector stops matching, run `python run.py probe --interactive` and copy the
-  # real element from logs/gemini/probe_*.json instead of guessing.)
+  # To capture selectors for the CURRENT page (e.g. /images), run:
+  #   python run.py probe --url https://gemini.google.com/images --steps --interactive --headed
+  # then review logs/gemini/selectors.suggested.yaml and the step_*.json/html dumps,
+  # and paste the winners below.)
   selectors:
     new_chat_button: 'button[aria-label*="New chat" i], button:has-text("New chat")'
+    download_button: 'button[aria-label*="Download" i], [data-test-id*="download" i]'
     prompt_box: 'div[contenteditable="true"][role="textbox"], rich-textarea div[contenteditable="true"]'
     file_input: 'input[type="file"]'
     send_button: 'button[aria-label*="Send"], button.send-button'

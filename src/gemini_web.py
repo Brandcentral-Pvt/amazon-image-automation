@@ -85,8 +85,20 @@ JS_BUTTONS = """
     testid: n.getAttribute('data-test-id') || '',
     text: (n.innerText || '').trim().replace(/\\s+/g, ' ').slice(0, 60),
     visible: !!(n.offsetWidth || n.offsetHeight || n.getClientRects().length),
+    // truncated outerHTML so an exact XPath can be derived from the dump
+    html: (n.outerHTML || '').replace(/\\s+/g, ' ').slice(0, 300),
   })).filter(b => b.aria || b.text || b.testid || b.title);
 }
+"""
+
+# contenteditable elements on the page (the composer / prompt box lives here)
+JS_CONTENTEDITABLES = """
+() => Array.from(document.querySelectorAll('[contenteditable="true"]')).slice(0, 20).map(n => ({
+  tag: n.tagName.toLowerCase(),
+  role: n.getAttribute('role') || '',
+  aria: n.getAttribute('aria-label') || '',
+  cls: (n.className || '').toString().slice(0, 80),
+}))
 """
 
 JS_FILE_INPUTS = """
@@ -126,6 +138,101 @@ JS_LAST_TEXT = """
 
 class GeminiError(RuntimeError):
     pass
+
+
+# ---------------------------------------------------------------------------
+# Probe -> config bridge: turn a dumped page inventory into selector candidates
+# ---------------------------------------------------------------------------
+def _css_candidates(b: dict[str, Any]) -> list[str]:
+    """Concrete CSS selectors for one dumped button/link, most stable first."""
+    cands: list[str] = []
+    tag = b.get("tag") or "button"
+    if b.get("testid"):
+        cands.append(f'{tag}[data-test-id="{b["testid"]}"]')
+    if b.get("aria"):
+        cands.append(f'{tag}[aria-label="{b["aria"]}"]')
+    if b.get("role"):
+        cands.append(f'{tag}[role="{b["role"]}"]')
+    text = (b.get("text") or "").strip()
+    if text and len(text) <= 40:
+        cands.append(f'{tag}:has-text("{text}")')
+    return cands
+
+
+def suggest_selectors(report: dict[str, Any], ratio: str = "3:4") -> dict[str, list[str]]:
+    """Map a probe report ({buttons, file_inputs, contenteditables}) onto the
+    gemini.selectors.* action keys with concrete candidate selectors.
+
+    Pure function (no browser) so it is unit-testable offline. Menu-only items
+    (create_image_option, aspect_ratio options) only appear in step dumps taken
+    while the menu is open - that is what `run.py probe --steps` is for.
+    """
+    import re as _re
+
+    out: dict[str, list[str]] = {}
+
+    def add(key: str, cands: list[str]) -> None:
+        for c in cands:
+            if c not in out.setdefault(key, []):
+                out[key].append(c)
+
+    for b in report.get("buttons") or []:
+        cands = _css_candidates(b)
+        if not cands:
+            continue
+        blob = f"{b.get('aria', '')} {b.get('testid', '')} {b.get('text', '')} {b.get('title', '')}".lower()
+        if "send" in blob:
+            add("send_button", cands)
+        if "stop" in blob:
+            add("stop_button", cands)
+        if "download" in blob:
+            add("download_button", cands)
+        if "close" in str(b.get("aria", "")).lower():
+            add("lightbox_close", cands)
+        if "new chat" in blob:
+            add("new_chat_button", cands)
+        if any(w in blob for w in ("i agree", "accept all", "got it", "accept")):
+            add("consent_buttons", cands)
+        if any(w in blob for w in ("add files", "add file", "upload", "attach", "add photos")) \
+                or str(b.get("aria", "")).lower().startswith("add"):
+            add("attach_buttons", cands)
+        if "model" in blob:
+            add("model_picker", cands)
+        if "create image" in blob:
+            add("create_image_option", cands)
+        if "aspect ratio" in blob:
+            add("aspect_ratio_button", cands)
+        # a bare ratio option (e.g. "3:4") inside an open aspect menu
+        if _re.fullmatch(r"\d+\s*:\s*\d+", (b.get("text") or "").strip()):
+            ratio_key = _re.sub(r"[^0-9A-Za-z]+", "_", ratio).strip("_")
+            add(f"aspect_ratio_{ratio_key}", cands)
+
+    fis = report.get("file_inputs") or []
+    if any(f.get("type") == "file" for f in fis):
+        add("file_input", ['input[type="file"]'])
+        if any("image" in (f.get("accept") or "") for f in fis):
+            add("file_input", ['input[accept*="image"]'])
+
+    for ce in report.get("contenteditables") or []:
+        cands = []
+        if ce.get("aria"):
+            cands.append(f'{ce["tag"]}[contenteditable="true"][aria-label="{ce["aria"]}"]')
+        if ce.get("role"):
+            cands.append(f'{ce["tag"]}[contenteditable="true"][role="{ce["role"]}"]')
+        cands.append(f'{ce["tag"]}[contenteditable="true"]')
+        add("prompt_box", cands)
+
+    if (report.get("image_count") or 0) > 0:
+        add("generated_image", ["model-response img", "message-content img"])
+        add("response_block", ["model-response", "message-content"])
+    return out
+
+
+# Default target page. /images is the dedicated image-generation surface (the
+# composer starts in image mode there); override per-environment via
+# gemini.url in config.yaml or GEMINI_URL in .env. Capture fresh selectors for
+# the page with: python run.py probe --url https://gemini.google.com/images --steps
+DEFAULT_GEMINI_URL = "https://gemini.google.com/images"
 
 
 class GeminiWeb:
@@ -171,7 +278,7 @@ class GeminiWeb:
         # KEY FIX: route every download straight to its related place
         self.page.on("download", self._on_download)
 
-        self.page.goto(self.cfg.get("gemini.url", "https://gemini.google.com/app"),
+        self.page.goto(self._gemini_url(),
                        wait_until="domcontentloaded")
         self.page.wait_for_timeout(2500)
         self._cool_down_on_block()
@@ -204,6 +311,9 @@ class GeminiWeb:
 
     def _sel(self, key: str, default: str = "") -> str:
         return self.cfg.get(f"gemini.selectors.{key}", default) or default
+
+    def _gemini_url(self) -> str:
+        return self.cfg.get("gemini.url", DEFAULT_GEMINI_URL) or DEFAULT_GEMINI_URL
 
     def _frames(self):
         try:
@@ -279,7 +389,7 @@ class GeminiWeb:
             pass
         self.page.wait_for_timeout(wait * 1000)
         try:
-            self.page.goto(self.cfg.get("gemini.url", "https://gemini.google.com/app"),
+            self.page.goto(self._gemini_url(),
                            wait_until="domcontentloaded")
             self.page.wait_for_timeout(2500)
         except Exception:  # noqa: BLE001
@@ -706,7 +816,7 @@ class GeminiWeb:
     # ------------------------------------------------------------- chat
     def new_chat(self) -> None:
         try:
-            self.page.goto(self.cfg.get("gemini.url", "https://gemini.google.com/app"),
+            self.page.goto(self._gemini_url(),
                            wait_until="domcontentloaded")
             self.page.wait_for_timeout(1500)
             self._cool_down_on_block()
@@ -962,6 +1072,7 @@ class GeminiWeb:
             report["title"] = self.page.title()
             report["file_inputs"] = self.page.evaluate(JS_FILE_INPUTS)
             report["buttons"] = self.page.evaluate(JS_BUTTONS)
+            report["contenteditables"] = self.page.evaluate(JS_CONTENTEDITABLES)
             report["upload_previews"] = self.page.evaluate(JS_UPLOAD_PREVIEWS)
             report["image_count"] = self.page.evaluate(JS_COUNT_IMAGES)
             report["frames"] = [f.url for f in self._frames()]
@@ -979,6 +1090,71 @@ class GeminiWeb:
         write_json(json_path, report)
         log.info("diagnostics saved -> %s", json_path)
         return report
+
+    # ------------------------------------------------------------- step capture
+    # Action-by-action capture for a (new) Gemini page such as /images:
+    # each step dumps a tagged report while the relevant menu/panel is open,
+    # so every action's selector can be read off real DOM data.
+    CAPTURE_STEPS = [
+        ("step_1_home", "home/composer: new-chat, consent, attach (+), prompt box, model picker button"),
+        ("step_2_attach", "attach menu open: 'Upload files' item + file input"),
+        ("step_3_model_picker", "model picker open: 'Create image' option"),
+        ("step_4_aspect", "aspect-ratio menu open: the ratio options (3:4 ...)"),
+        ("step_5_image", "one generated image on screen, hovered: image element, download button, lightbox close"),
+    ]
+
+    def capture_steps(self, interactive: bool = False) -> list[dict[str, Any]]:
+        """Dump one tagged report per UI action. With interactive=True (headed) the
+        browser pauses between steps: click the element named in the step so its
+        menu is open when the dump is taken. Headless mode clicks defaults best-effort.
+        """
+        reports: list[dict[str, Any]] = []
+
+        def _pause(msg: str) -> None:
+            if interactive:
+                log.info("%s - then press Enter here", msg)
+                try:
+                    input("  Enter... ")
+                except EOFError:
+                    pass
+
+        def _esc() -> None:
+            try:
+                self.page.keyboard.press("Escape")
+                self.page.wait_for_timeout(500)
+            except Exception:  # noqa: BLE001
+                pass
+
+        reports.append(self.dump_diagnostics("step_1_home"))
+        _pause("STEP 2: click the attach/+ button so its menu is open")
+        self._click_first(self._attach_candidates())
+        self.page.wait_for_timeout(1500)
+        reports.append(self.dump_diagnostics("step_2_attach"))
+        _esc()
+
+        _pause("STEP 3: open the model picker so 'Create image' is visible")
+        openers = self.cfg.get("gemini.selectors.model_picker") or [
+            'button[aria-label*="model" i]', '[data-test-id*="model-selector" i]',
+            'button:has-text("Flash")', 'button:has-text("Pro")',
+        ]
+        self._click_first(openers)
+        self.page.wait_for_timeout(1200)
+        reports.append(self.dump_diagnostics("step_3_model_picker"))
+        _esc()
+
+        _pause("STEP 4: click the 'Aspect ratio' row so the ratio options are visible")
+        try:
+            self.page.locator('div.row-container:has-text("Aspect ratio")').first.click(timeout=3000)
+            self.page.wait_for_timeout(1000)
+        except Exception:  # noqa: BLE001
+            log.debug("aspect row click failed in capture")
+        reports.append(self.dump_diagnostics("step_4_aspect"))
+        _esc()
+
+        _pause("STEP 5: generate ONE image (send any prompt in the browser), wait for it, "
+               "hover the image so the Download button shows")
+        reports.append(self.dump_diagnostics("step_5_image"))
+        return reports
 
     # ------------------------------------------------------------- one slot
     def generate_image(

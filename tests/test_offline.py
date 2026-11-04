@@ -554,6 +554,50 @@ def main() -> int:
     cfg.data["gemini"]["slot_retries"] = 2
     print("[ok] pipeline image gate: valid panels accepted; undecodable rejected, retried, marked failed")
 
+    # --- default target page is /images + probe classifier + probe CLI flags ---
+    from src.gemini_web import DEFAULT_GEMINI_URL, suggest_selectors   # noqa: E402
+
+    assert DEFAULT_GEMINI_URL == "https://gemini.google.com/images", DEFAULT_GEMINI_URL
+    assert cfg.get("gemini.url") == "https://gemini.google.com/images", cfg.get("gemini.url")
+
+    fake_report = {
+        "buttons": [
+            {"tag": "button", "aria": "Send message", "text": "", "testid": "send-btn", "role": "", "title": ""},
+            {"tag": "button", "aria": "", "text": "New chat", "testid": "", "role": "", "title": ""},
+            {"tag": "button", "aria": "Download", "text": "", "testid": "dl", "role": "", "title": ""},
+            {"tag": "button", "aria": "", "text": "3:4", "testid": "", "role": "option", "title": ""},
+            {"tag": "button", "aria": "", "text": "Create image", "testid": "", "role": "menuitem", "title": ""},
+            {"tag": "button", "aria": "", "text": "Aspect ratio", "testid": "", "role": "", "title": ""},
+            {"tag": "button", "aria": "", "text": "I agree", "testid": "", "role": "", "title": ""},
+            {"tag": "button", "aria": "Add files and more", "text": "", "testid": "", "role": "", "title": ""},
+            {"tag": "button", "aria": "Model: 2.5 Flash", "text": "", "testid": "model-selector", "role": "", "title": ""},
+            {"tag": "button", "aria": "Close", "text": "", "testid": "", "role": "dialog", "title": ""},
+            {"tag": "button", "aria": "Stop response", "text": "", "testid": "", "role": "", "title": ""},
+        ],
+        "file_inputs": [{"type": "file", "accept": "image/*", "multiple": True, "hidden": True, "cls": "x"}],
+        "contenteditables": [{"tag": "div", "role": "textbox", "aria": "Ask Gemini", "cls": "ql-editor"}],
+        "image_count": 2,
+    }
+    sugg = suggest_selectors(fake_report, ratio="3:4")
+    for key in ("send_button", "stop_button", "download_button", "new_chat_button",
+                "aspect_ratio_3_4", "create_image_option", "aspect_ratio_button",
+                "consent_buttons", "attach_buttons", "model_picker", "lightbox_close",
+                "file_input", "prompt_box", "generated_image", "response_block"):
+        assert sugg.get(key), f"missing suggested selector for {key}: {sorted(sugg)}"
+    assert any("send-btn" in c for c in sugg["send_button"])
+    assert any("3:4" in c for c in sugg["aspect_ratio_3_4"])
+    assert any('role="textbox"' in c for c in sugg["prompt_box"])
+    assert any("image" in c for c in sugg["file_input"])
+    print(f"[ok] probe classifier: {len(sugg)} action keys mapped from a page inventory; "
+          f"default url = {DEFAULT_GEMINI_URL}")
+
+    import run as _run                                     # noqa: E402
+    args = _run.build_parser().parse_args(
+        ["probe", "--url", "https://gemini.google.com/images", "--steps", "--interactive", "--headed"])
+    assert args.cmd == "probe" and args.url == "https://gemini.google.com/images"
+    assert args.steps and args.interactive and args.headed
+    print("[ok] probe CLI: --url/--steps/--interactive parse correctly")
+
     # --- REGRESSION: the scraper's raw -> ProductData mapping (aplus bug, 2026-10-30)
     raw_js = {
         "title": "  Test   Product  ",
