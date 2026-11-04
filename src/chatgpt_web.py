@@ -562,15 +562,38 @@ class ChatGPTWeb:
         return out
 
     def download_via_button(self, dest: Path) -> Path | None:
-        # A browser download event is only accepted when it is routed to this slot.
         candidate = self._handled_download
         if candidate is None or not candidate.exists():
-            return None
-        raw = candidate.read_bytes()
-        self._save_candidate(raw, dest)
-        if candidate != dest:
-            candidate.unlink(missing_ok=True)
-        return dest
+            # The DOM image URL can be inaccessible. Use the UI download control
+            # associated with this prompt rather than relying on an arbitrary page button.
+            blocks = self.page.locator('[data-message-author-role="assistant"]')
+            if blocks.count() <= self._baseline_blocks:
+                return None
+            selector = self._sel("download_button", 'button[aria-label*="Download" i]')
+            button = None
+            for index in range(blocks.count() - 1, self._baseline_blocks - 1, -1):
+                buttons = blocks.nth(index).locator(selector)
+                if buttons.count():
+                    button = buttons.first
+                    break
+            if button is None:
+                return None
+            try:
+                with self.page.expect_download(timeout=30000) as info:
+                    button.click(timeout=5000)
+                download = info.value
+                suffix = Path(download.suggested_filename or "").suffix or ".png"
+                candidate = dest.with_name(dest.name + ".download" + suffix)
+                download.save_as(str(candidate))
+            except Exception as exc:
+                log.warning("ChatGPT UI image download failed: %s", exc)
+                return None
+        try:
+            self._save_candidate(candidate.read_bytes(), dest)
+            return dest
+        finally:
+            if candidate != dest:
+                candidate.unlink(missing_ok=True)
 
     # ------------------------------------------------------------- diagnostics
     def dump_diagnostics(self, tag: str = "probe") -> dict[str, Any]:
