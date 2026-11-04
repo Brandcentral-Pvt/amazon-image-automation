@@ -640,11 +640,7 @@ class ChatGPTWeb:
 
     # ------------------------------------------------------------- batch session
     def begin_batch(self, reference_images: list = None) -> None:
-        """6-step setup:
-        1. Open ChatGPT page
-        2. Upload ref images
-        3. (No model picker - GPT-4o auto-triggers DALL-E 3)
-        """
+        """Start a fresh ASIN conversation and verify the reference attachments."""
         self.new_chat()
         self._seen_image_hashes = set()
         self._reference_hashes = set()
@@ -677,7 +673,7 @@ class ChatGPTWeb:
         # A new batch must begin at a clean composer rather than an old reply.
         previous = self.page.locator('[data-message-author-role="assistant"]').count()
         if previous:
-            selector = self._sel("new_chat_button", 'a[href="/"], button[aria-label*="New chat" i]')
+            selector = self._sel("new_chat_button", 'button[aria-label*="New chat" i], a[aria-label*="New chat" i]')
             button = self.page.locator(selector).first
             if button.count() == 0 or not button.is_visible(timeout=2000):
                 raise ChatGPTError("could not create a fresh ChatGPT conversation")
