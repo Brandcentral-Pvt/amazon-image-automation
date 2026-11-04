@@ -456,8 +456,6 @@ def launch_chatgpt_context(pw, cfg: Config, headless: bool = True):
         "locale": cfg.get("browser.locale", "en-US"),
         "args": args,
         "ignore_default_args": ["--enable-automation"],
-        "args": args,
-
     }
     executable = cfg.get("chatgpt.chrome_executable_path")
     if executable:
