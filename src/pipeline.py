@@ -169,8 +169,9 @@ class Pipeline:
         # STRICT SEQUENCE: upload refs -> select Create image -> set 3:4
         gem.begin_batch(reference_images=refs)
 
-        retries = int(self.cfg.get("gemini.slot_retries", 2))
-        retry_delay = self.cfg.get("gemini.slot_retry_delay_sec", [10, 20])
+        provider = str(self.cfg.get("generation.provider", "gemini")).strip().lower()
+        retries = int(self.cfg.get(f"{provider}.slot_retries", 2))
+        retry_delay = self.cfg.get(f"{provider}.slot_retry_delay_sec", [10, 20])
 
         for item in pending:
             slot = item["slot_id"]
