@@ -13,6 +13,23 @@ from .utils import PROJECT_ROOT, log
 _ENV_PATTERN = re.compile(r"\$\{([A-Z0-9_]+)(?::-([^}]*))?\}")
 
 
+class ConfigError(RuntimeError):
+    """Raised when config.yaml is missing required fields or has invalid values."""
+
+
+# Dotted paths that must exist in config.yaml for the pipeline to run.
+# watermark.engine_dir is conditionally required (only when watermark.enabled).
+REQUIRED_FIELDS = (
+    "amazon.domain",
+    "output.root",
+    "gemini.url",
+)
+
+CONDITIONAL_REQUIRED = (
+    ("watermark.enabled", "watermark.engine_dir"),
+)
+
+
 def _load_dotenv(path: Path) -> None:
     if not path.exists():
         return
@@ -38,7 +55,7 @@ class Config:
     """Thin dict wrapper with dotted access: cfg.get('gemini.selectors.file_input')."""
 
     def __init__(self, data: dict[str, Any], path: Path | None = None):
-        self.data = data
+        self.data = _expand(data)
         self.path = path
 
     def get(self, dotted: str, default: Any = None) -> Any:
@@ -54,6 +71,22 @@ class Config:
 
     def root(self) -> Path:
         return PROJECT_ROOT
+
+    def validate(self) -> None:
+        """Ensure all required fields are present; raises ConfigError otherwise."""
+        missing: list[str] = []
+        for field in REQUIRED_FIELDS:
+            if not self.get(field):
+                missing.append(field)
+        for enabled_field, required_field in CONDITIONAL_REQUIRED:
+            if self.get(enabled_field) and not self.get(required_field):
+                missing.append(required_field)
+        if missing:
+            joined = ", ".join(sorted(missing))
+            raise ConfigError(
+                f"config.yaml is missing required fields: {joined}. "
+                f"Copy config.example.yaml -> config.yaml and fill them in."
+            )
 
     def out_root(self) -> Path:
         p = Path(self.get("output.root", "output"))
@@ -76,11 +109,11 @@ def load_config(path: str | Path | None = None) -> Config:
     for candidate in candidates:
         if candidate and candidate.exists():
             data = yaml.safe_load(candidate.read_text(encoding="utf-8")) or {}
-            data = _expand(data)
             # `python run.py ... --headed` sets HEADED=1 -> show the browser
             if os.environ.get("HEADED"):
                 data.setdefault("browser", {})["headless"] = False
             cfg = Config(data, candidate)
+            cfg.validate()
             log.debug("config loaded from %s", candidate)
             return cfg
     raise FileNotFoundError("No config.yaml found. Copy config.example.yaml -> config.yaml")
