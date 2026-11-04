@@ -457,8 +457,11 @@ def launch_chatgpt_context(pw, cfg: Config, headless: bool = True):
         "args": args,
         "ignore_default_args": ["--enable-automation"],
         "args": args,
-        "executable_path": cfg.get("chatgpt.chrome_executable_path") or "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
+
     }
+    executable = cfg.get("chatgpt.chrome_executable_path")
+    if executable:
+        kwargs["executable_path"] = executable
     if cfg.get("browser.user_agent"):
         kwargs["user_agent"] = cfg.get("browser.user_agent")
     if cfg.get("browser.proxy"):
