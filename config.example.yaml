@@ -119,7 +119,7 @@ gemini:
     new_chat_button: 'button[aria-label*="New chat" i], button:has-text("New chat")'
     download_button: 'button[aria-label*="Download" i], [data-test-id*="download" i]'
     prompt_box: 'div[contenteditable="true"][role="textbox"], rich-textarea div[contenteditable="true"]'
-    file_input: 'input[type="file"]'
+    file_input: 'input[aria-label="Attach photos or videos"][type="file"]'
     send_button: 'button[aria-label*="Send"], button.send-button'
     stop_button: 'button[aria-label*="Stop" i], button[aria-label*="stop response" i]'
     response_block: 'model-response, .model-response-text, message-content'   # informational; the JS counters hardcode these
@@ -310,9 +310,10 @@ chatgpt:
     aspect_tolerance: 0.07  # Accepts 3:4 or 5:6 portrait ratios
   # CSS selectors (update when ChatGPT UI changes)
   selectors:
-    prompt_box: '#prompt-textarea[contenteditable="true"], [data-testid="prompt-textarea"] [contenteditable="true"], div.ProseMirror[contenteditable="true"]'
-    send_button: 'button[data-testid="send-button"], button[aria-label="Send prompt"], button[aria-label="Send message"]'
+    prompt_box: 'div[aria-label="Ask ChatGPT"][contenteditable="true"], div[aria-label="Describe edits"][contenteditable="true"]'
+    send_button: 'button[aria-label="Send"], button[data-testid="send-button"]'
     attach_buttons:
+      - 'button[aria-label="Add files and more"]'
       - 'button[data-testid="composer-plus-btn"]'
       - 'button[aria-label*="Attach" i]'
       - 'button[aria-label*="Upload" i]'
@@ -322,6 +323,7 @@ chatgpt:
       - 'text="Upload from computer"'
       - 'text="Upload file"'
       - '[role="menuitem"]:has-text("Upload")'
+    new_chat_button: 'button[aria-label="New chat"]'
     download_button: 'button[aria-label="Download"]'
     file_input: 'input[type="file"]'
     lightbox_close: 'button[aria-label*="Close" i]'
