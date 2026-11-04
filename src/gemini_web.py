@@ -301,6 +301,38 @@ class GeminiWeb:
                 "Gemini is not logged in / page did not load. Run: python run.py login --headed"
             ) from exc
 
+    # ------------------------------------------------------------- health check
+    def health_check(self) -> dict[str, object]:
+        """Probe the live Gemini page for critical UI selectors.
+
+        Returns {"healthy": bool, "missing": [keys], "checked": [keys]}.
+        Call before begin_batch to fail fast on UI drift instead of mid-batch.
+        file_input only needs to exist in the DOM (it may be hidden).
+        """
+        checks = [
+            ("prompt_box", True),      # (key, must_be_visible)
+            ("send_button", True),
+            ("file_input", False),     # hidden inputs OK - just needs to exist
+        ]
+        missing: list[str] = []
+        checked: list[str] = []
+        for key, must_be_visible in checks:
+            sel = self._sel(key)
+            checked.append(key)
+            if not sel:
+                missing.append(key)
+                continue
+            try:
+                loc = self.page.locator(sel).first
+                if loc.count() == 0:
+                    missing.append(key)
+                    continue
+                if must_be_visible and not loc.is_visible(timeout=3000):
+                    missing.append(key)
+            except Exception:  # noqa: BLE001
+                missing.append(key)
+        return {"healthy": len(missing) == 0, "missing": missing, "checked": checked}
+
     # ------------------------------------------------------------- attach buttons
     def _attach_candidates(self) -> list[str]:
         """CSS selectors tried, in order, to open the file picker."""
