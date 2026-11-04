@@ -626,13 +626,13 @@ class ChatGPTWeb:
 def chatgpt_login(cfg: Config) -> int:
     """One-time ChatGPT login - saves session to Chrome profile."""
     from playwright.sync_api import sync_playwright
-    from .browser import launch_gemini_context
+    from .browser import launch_chatgpt_context
 
     log.info("Opening browser - sign in to ChatGPT, then press Enter.")
     with sync_playwright() as pw:
-        ctx, _ = launch_gemini_context(pw, cfg, headless=False)
+        ctx, _ = launch_chatgpt_context(pw, cfg, headless=False)
         page = ctx.pages[0] if ctx.pages else ctx.new_page()
-        url = cfg.get("chatgpt.url", "https://chatgpt.com/g/g-p-6aeafd8cf6148191b9034dbaaf247ba1")
+        url = cfg.get("chatgpt.url", "https://chatgpt.com/g/g-p-6aeafd8cf6148191b9034dbaaf247ba1/project")
         page.goto(url, wait_until="domcontentloaded")
         try:
             input("Press Enter after you've signed in to ChatGPT...")
