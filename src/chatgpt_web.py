@@ -5,7 +5,7 @@ No API key needed: a persisted Chrome profile keeps the ChatGPT session alive.
 Follows the same 6-step workflow as Gemini:
 1. Open ChatGPT web page (custom GPT URL)
 2. Upload ref images
-3. Select/Create mode (GPT-4o auto-triggers DALL-E 3)
+3. Select/Create mode (image generation depends on the selected ChatGPT experience)
 4. Click generation button (send prompt)
 5. Download Generation
 6. Next Generation (caller loops)
@@ -152,6 +152,8 @@ class ChatGPTWeb:
         # download routing
         self._pending_dest: Path | None = None
         self._handled_download: Path | None = None
+        self._seen_image_hashes: set[str] = set()
+        self._reference_hashes: set[str] = set()
 
     # ------------------------------------------------------------- lifecycle
     def __enter__(self) -> "ChatGPTWeb":
@@ -478,15 +480,18 @@ class ChatGPTWeb:
         return False
 
     # ------------------------------------------------------------- download
-    @staticmethod
-    def _validated_image(raw: bytes, expected: Path) -> bytes:
+    def _validated_image(self, raw: bytes, expected: Path) -> bytes:
         try:
             with Image.open(io.BytesIO(raw)) as img:
                 img.verify()
             with Image.open(io.BytesIO(raw)) as img:
                 width, height = img.size
-                if width < 600 or height < 600:
+                if max(width, height) < int(self.cfg.get("chatgpt.image_check.min_long_side_px", 1000)):
                     raise ChatGPTError(f"generated image is too small: {width}x{height}")
+                ratio = min(width, height) / max(width, height)
+                tolerance = float(self.cfg.get("chatgpt.image_check.aspect_tolerance", 0.07))
+                if not any(abs(ratio - target) <= tolerance for target in (0.75, 5.0 / 6.0)):
+                    raise ChatGPTError(f"invalid image aspect ratio: {width}x{height}")
                 if expected.suffix.lower() == ".png":
                     converted = io.BytesIO()
                     img.convert("RGB").save(converted, format="PNG")
@@ -498,6 +503,27 @@ class ChatGPTWeb:
                 raise ChatGPTError(f"unsupported output extension: {expected.suffix}")
         except (UnidentifiedImageError, OSError, ValueError) as exc:
             raise ChatGPTError("downloaded bytes are not a valid image") from exc
+
+    @staticmethod
+    def _content_fingerprint(raw: bytes) -> str:
+        with Image.open(io.BytesIO(raw)) as img:
+            return hashlib.sha256(img.convert("RGB").resize((128, 128)).tobytes()).hexdigest()
+
+    def _save_candidate(self, raw: bytes, dest: Path) -> str:
+        valid = self._validated_image(raw, dest)
+        fingerprint = self._content_fingerprint(valid)
+        if fingerprint in self._reference_hashes:
+            raise ChatGPTError("image duplicates an uploaded reference")
+        if fingerprint in self._seen_image_hashes:
+            raise ChatGPTError("image duplicates an earlier generated slot")
+        tmp = dest.with_name(dest.name + ".tmp")
+        try:
+            tmp.write_bytes(valid)
+            os.replace(tmp, dest)
+        finally:
+            tmp.unlink(missing_ok=True)
+        self._seen_image_hashes.add(fingerprint)
+        return hashlib.sha256(valid).hexdigest()
 
     def collect_images(self) -> list[dict[str, Any]]:
         if self.page.locator('[data-message-author-role="assistant"]').count() <= self._baseline_blocks:
@@ -541,10 +567,7 @@ class ChatGPTWeb:
         if candidate is None or not candidate.exists():
             return None
         raw = candidate.read_bytes()
-        converted = self._validated_image(raw, dest)
-        tmp = dest.with_name(dest.name + ".tmp")
-        tmp.write_bytes(converted)
-        os.replace(tmp, dest)
+        self._save_candidate(raw, dest)
         if candidate != dest:
             candidate.unlink(missing_ok=True)
         return dest
@@ -603,11 +626,8 @@ class ChatGPTWeb:
             images = self.collect_images()
             for item in sorted(images, key=lambda x: len(x["bytes"]), reverse=True):
                 try:
-                    valid = self._validated_image(item["bytes"], dest)
-                    tmp = dest.with_name(dest.name + ".tmp")
-                    tmp.write_bytes(valid)
-                    os.replace(tmp, dest)
-                    return {"ok": True, "path": str(dest), "sha256": hashlib.sha256(valid).hexdigest()}
+                    digest = self._save_candidate(item["bytes"], dest)
+                    return {"ok": True, "path": str(dest), "sha256": digest}
                 except ChatGPTError as exc:
                     log.warning("image candidate rejected: %s", exc)
             saved = self.download_via_button(dest)
@@ -626,6 +646,13 @@ class ChatGPTWeb:
         3. (No model picker - GPT-4o auto-triggers DALL-E 3)
         """
         self.new_chat()
+        self._seen_image_hashes = set()
+        self._reference_hashes = set()
+        for item in reference_images or []:
+            try:
+                self._reference_hashes.add(self._content_fingerprint(Path(item).read_bytes()))
+            except (OSError, UnidentifiedImageError, ValueError) as exc:
+                raise ChatGPTError(f"invalid reference image: {item}") from exc
         if reference_images:
             log.info("uploading %d reference images", len(reference_images))
             self.upload_images(reference_images)
@@ -647,6 +674,18 @@ class ChatGPTWeb:
             raise
         except Exception as exc:
             log.warning("new_chat navigation issue: %s", exc)
+        # A new batch must begin at a clean composer rather than an old reply.
+        previous = self.page.locator('[data-message-author-role="assistant"]').count()
+        if previous:
+            selector = self._sel("new_chat_button", 'a[href="/"], button[aria-label*="New chat" i]')
+            button = self.page.locator(selector).first
+            if button.count() == 0 or not button.is_visible(timeout=2000):
+                raise ChatGPTError("could not create a fresh ChatGPT conversation")
+            button.click(timeout=5000)
+            self.page.wait_for_timeout(1500)
+            if self.page.locator('[data-message-author-role="assistant"]').count():
+                raise ChatGPTError("ChatGPT still displays previous conversation after new chat")
+        self._assert_logged_in()
         self._refs_attached = False
 
 
