@@ -173,8 +173,8 @@ def run_chatgpt_probe(cfg, interactive: bool = False) -> int:
             if browser is None:
                 ctx.close()
             else:
-                # Connected to an existing Chrome instance: do not close the user's windows.
-                browser.close()
+                # Attached through CDP: disconnect when Playwright exits, do not close Chrome.
+                pass
     report_path = out / "report.json"
     report_path.write_text(json.dumps(report, indent=2, ensure_ascii=False), encoding="utf-8")
     log.info("ChatGPT probe saved selector metadata to %s", report_path)
