@@ -132,6 +132,11 @@ class ChatGPTError(RuntimeError):
     pass
 
 
+class ChatGPTSubmissionUncertain(ChatGPTError):
+    """Submission may already be active, so automatic retry is unsafe."""
+    unsafe_to_retry = True
+
+
 class ChatGPTWeb:
     def __init__(self, cfg: Config, headless: bool = False):
         self.cfg = cfg
@@ -403,7 +408,7 @@ class ChatGPTWeb:
                 log.info("ChatGPT accepted prompt (%d chars)", len(prompt))
                 return
             self.page.wait_for_timeout(300)
-        raise ChatGPTError("prompt submission was not confirmed; do not retry blindly")
+        raise ChatGPTSubmissionUncertain("prompt submission was not confirmed; do not retry blindly")
 
     def _new_reply_ready(self) -> bool:
         try:
