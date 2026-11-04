@@ -7,6 +7,7 @@
   python run.py clean   --asins asins.txt   # watermark-clean already-generated images
   python run.py all     --asins asins.txt   # full pipeline
   python run.py one     --asin B0XXXXXXXX   # single ASIN, full pipeline
+  python run.py probe [--interactive]       # dump Gemini page diagnostics (fix selectors from data)
 
 Handy flags: --dry-run (prompts only, no Gemini calls) --headed (watch the browser)
              --force (regenerate finished slots) --limit 5 --config other.yaml
@@ -61,7 +62,9 @@ def cmd_login(args) -> int:
 
             ctx, _ = launch_context(pw, cfg, headless=False)
         page = ctx.pages[0] if ctx.pages else ctx.new_page()
-        page.goto(cfg.get("gemini.url", "https://gemini.google.com/app"))
+        from src.gemini_web import DEFAULT_GEMINI_URL
+
+        page.goto(cfg.get("gemini.url", DEFAULT_GEMINI_URL))
         try:
             input("Press Enter once you are logged in... ")
         except EOFError:
@@ -77,7 +80,12 @@ def cmd_scrape(args) -> int:
     from src.pipeline import Pipeline
 
     cfg = load_config(args.config)
-    return 0 if Pipeline(cfg, args.dry_run, args.force).scrape(_asins(args)) else 0
+    products = Pipeline(cfg, args.dry_run, args.force).scrape(_asins(args))
+    failed = sorted(a for a, p in products.items() if p.scrape_status != "ok")
+    if failed:
+        log.error("scrape failed for %d ASIN(s): %s", len(failed), ", ".join(failed))
+        return 1
+    return 0
 
 
 def cmd_generate(args) -> int:
@@ -93,17 +101,15 @@ def cmd_clean(args) -> int:
     """Retro-clean already-generated bundles through the watermark remover."""
     import datetime as dt
 
-    from src.utils import read_json, write_json
-    from src.wm_clean import clean_generated_image
+    from src.utils import iter_real_files, read_json, write_json
+    from src.wm_clean import IMAGE_EXTS, clean_generated_image
 
     cfg = load_config(args.config)
     totals: dict[str, int] = {}
     for asin in _asins(args):
         adir = Path(cfg.asin_dir(asin))
         gen_dir = adir / "generated"
-        files = sorted(p for p in gen_dir.glob("*.*") if p.is_file())
-        files = [f for f in files if f.suffix.lower() in (
-            ".png", ".jpg", ".jpeg", ".webp", ".bmp")]
+        files = [f for f in iter_real_files(gen_dir) if f.suffix.lower() in IMAGE_EXTS]
         if not files:
             log.info("%s: no generated images (run generate first)", asin)
             continue
@@ -144,6 +150,68 @@ def cmd_all(args) -> int:
     return 0 if not stats.get("failed") else 1
 
 
+def cmd_probe(args) -> int:
+    """Open a Gemini page in the persistent profile and dump page diagnostics.
+
+    Writes logs/gemini/probe_*.{json,html,png}: every button/file input/
+    contenteditable on the live page + screenshot (buttons include a truncated
+    outerHTML so exact XPaths can be derived). With --steps, one tagged dump per
+    UI action is captured (step_1_home, step_2_attach, step_3_model_picker,
+    step_4_aspect, step_5_image) - use --interactive (headed) and click the
+    element named in each step so its menu is open when the dump is taken.
+    All dumps are merged into logs/gemini/selectors.suggested.yaml, a ready-to-
+    review mapping of gemini.selectors.* keys to concrete selectors for THIS page.
+    Use --url to probe a specific page, e.g. --url https://gemini.google.com/images
+    """
+    import yaml
+
+    from src.backends import backend_name, get_driver
+    from src.gemini_web import suggest_selectors
+
+    cfg = load_config(args.config)
+    if getattr(args, "backend", None):
+        cfg.data.setdefault("image", {})["backend"] = args.backend
+    if getattr(args, "url", None):
+        section = "arena" if backend_name(cfg) == "arena_web" else "gemini"
+        cfg.data.setdefault(section, {})["url"] = args.url
+    headless = bool(cfg.get("browser.headless", True)) and not args.headed
+    Driver = get_driver(cfg)
+    with Driver(cfg, headless=headless) as gem:
+        reports = [gem.dump_diagnostics("probe")]
+        log.info("probe: url=%s image_count=%s buttons=%d -> %s",
+                 reports[0].get("url"), reports[0].get("image_count"),
+                 len(reports[0].get("buttons") or []), reports[0].get("json"))
+        if getattr(args, "steps", False):
+            reports += gem.capture_steps(interactive=args.interactive)
+        elif args.interactive:
+            log.info("interactive: click around in the browser window, then press Enter here")
+            try:
+                input("Press Enter to dump the final report... ")
+            except EOFError:
+                pass
+            reports.append(gem.dump_diagnostics("probe_final"))
+
+    # merge all step dumps -> suggested selectors for this page
+    merged: dict[str, list] = {"buttons": [], "file_inputs": [], "contenteditables": []}
+    for r in reports:
+        for k in merged:
+            merged[k] += r.get(k) or []
+    ratio = str(cfg.get("gemini.aspect_ratio", "3:4") or "3:4")
+    sugg = suggest_selectors(merged, ratio=ratio)
+    out_dir = Path("logs") / "gemini"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    out_path = out_dir / "selectors.suggested.yaml"
+    header = ("# Auto-generated by `run.py probe --steps` - candidates for gemini.selectors.*,\n"
+              "# derived from the live DOM of the probed page. Review each entry against the\n"
+              "# step_*.json/html dumps (or derive exact XPaths from each button's 'html' field),\n"
+              "# then paste the winners into config.yaml under gemini.selectors.\n")
+    body = yaml.safe_dump({"gemini": {"selectors": sugg}}, sort_keys=True, allow_unicode=True)
+    out_path.write_text(header + body, encoding="utf-8")
+    log.info("suggested selectors for %s -> %s (%d action keys)",
+             cfg.get("gemini.url"), out_path, len(sugg))
+    return 0
+
+
 def _common(sp: argparse.ArgumentParser) -> None:
     """Flags usable before OR after the subcommand (SUPPRESS keeps the global value)."""
     sp.add_argument("--config", default=argparse.SUPPRESS)
@@ -175,6 +243,17 @@ def build_parser() -> argparse.ArgumentParser:
 
     _common(sub.add_parser("one", help="single ASIN, full pipeline"))
     _common(sub.add_parser("clean", help="pass generated images through the watermark remover"))
+
+    sp = sub.add_parser("probe", help="dump Gemini page diagnostics + suggested selectors (for /images etc.)")
+    _common(sp)
+    sp.add_argument("--interactive", action="store_true",
+                    help="headed: click around in the browser, press Enter between dumps")
+    sp.add_argument("--url", default=None,
+                    help="page to probe (default: the active backend's url, e.g. https://gemini.google.com/images)")
+    sp.add_argument("--backend", default=None,
+                    help="which image backend to probe: gemini_web (default) | arena_web")
+    sp.add_argument("--steps", action="store_true",
+                    help="capture one tagged dump per UI action (home/attach/model picker/aspect/image)")
     return p
 
 
@@ -197,6 +276,8 @@ def main(argv: list[str] | None = None) -> int:
             return cmd_all(args)
         if args.cmd == "clean":
             return cmd_clean(args)
+        if args.cmd == "probe":
+            return cmd_probe(args)
     except KeyboardInterrupt:
         log.warning("interrupted")
         return 130

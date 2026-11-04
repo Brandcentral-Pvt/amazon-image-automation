@@ -44,8 +44,8 @@ flowchart TD
         s2_load_product["read product.json → ProductData.from_dict()<br/>skip if scrape_status != 'ok'"]:::stage2
         s2_build_bundle["build_bundle() — prompts.py<br/>• Load AIIE studio pack (aiie_studio.yaml)<br/>  fallback: slots.yaml (legacy)<br/>• NIM casting (nim_client.py):<br/>  - NVIDIA NIM chat/completions API<br/>  - cached per ASIN in data/nim/<asin>.json<br/>  - local fallback if NIM fails<br/>• build_master_message() — session opener<br/>• build 8 slot prompts (AIIE PANEL N/8)<br/>• write prompts.json + prompts.md"]:::stage2
         s2_dry_run["dry_run? → save prompts as .txt<br/>return, skip Gemini calls"]:::stage2
-        s2_gemini_start["GeminiWeb context:<br/>• launch_gemini_context() — own Chrome profile<br/>• filechooser interception handler<br/>• download routing handler<br/>• goto gemini.google.com/app<br/>• _cool_down_on_block() if /sorry/<br/>• _dismiss_overlays() consent buttons<br/>• _assert_logged_in()<br/>• ensure_image_model()"]:::stage2
-        s2_begin_batch["begin_batch(master)<br/>• new_chat() → fresh chat per ASIN<br/>• send AIIE master message (audience lock,<br/>  model casting lock, visual garment transfer lock,<br/>  background intelligence, panel spec 3:4 1600×1920)<br/>• _wait_for_reply(text_ok=True)"]:::stage2
+        s2_gemini_start["GeminiWeb context:<br/>• launch_gemini_context() — own Chrome profile<br/>• filechooser interception handler<br/>• download routing handler<br/>• goto gemini.url (default gemini.google.com/images)<br/>• _cool_down_on_block() on /sorry/ or block_markers<br/>• _dismiss_overlays() consent buttons<br/>• _assert_logged_in()<br/>• ensure_image_model()"]:::stage2
+        s2_begin_batch["begin_batch(master)<br/>• new_chat() → explicit New chat + fresh chat per ASIN<br/>• upload refs FIRST, hash them (echo detection)<br/>• select 'Create image' + lock 3:4 (XPath, label fallback)<br/>• optional AIIE master when send_master_prompt=true<br/>  (default off; slot prompts carry the locks)"]:::stage2
         s2_slot_loop["FOR EACH of 8 slots (pending only,<br/>skip if status=ok and file exists,<br/>unless --force)"]:::stage2
         s2_retry_loop["FOR attempt 1..(slot_retries+1)<br/>on failure: restart_batch() + delay<br/>retry_delay_sec [10,20]s"]:::stage2
         s2_upload_refs["upload_images(reference_images)<br/>• max_reference_images (≤6)<br/>• strategy: direct <input type=file> OR<br/>  click + button → filechooser interception<br/>• attach every slot (attach_references_every_slot)"]:::stage2
@@ -92,6 +92,7 @@ flowchart TD
     %% ============================ CONNECTIONS ============================
     %% CLI → stages
     cli_login -.-> cfg_yaml
+    cli_probe -.-> cfg_yaml
     cli_scrape --> s1_entry
     cli_generate --> s2_entry
     cli_clean --> s3_entry

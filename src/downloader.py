@@ -26,6 +26,15 @@ def _image_size(path: Path) -> tuple[int, int]:
         return (0, 0)
 
 
+def _check_image(path: Path, min_px: int) -> tuple[bool, int, int]:
+    """(ok, w, h) - an image PIL cannot decode reports (0, 0) and must be REJECTED,
+    not accepted (a falsy 0 width used to slip through the size check)."""
+    w, h = _image_size(path)
+    if not w or not h or w < min_px or h < min_px:
+        return False, w, h
+    return True, w, h
+
+
 def _fetch(session: requests.Session, url: str, dest: Path, timeout: int = 30) -> bool:
     try:
         r = session.get(url, timeout=timeout, headers={"User-Agent": UA, "Referer": "https://www.amazon.in/"})

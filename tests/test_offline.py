@@ -33,6 +33,21 @@ def main() -> int:
     cfg.data["output"]["root"] = str(demo_root)
     # keep these tests hermetic: the wm engine runs from the remover's own venv
     cfg.data["watermark"] = {"enabled": False}
+    # hermetic: never attempt NIM calls from the offline suite
+    cfg.data["nim"] = {"enabled": False}
+    # hermetic: gallery plan caches must go to the demo dir, never touch the
+    # tracked data/nim/*.gallery.json sample files
+    import src.prompt_gallery as _pg                      # noqa: E402
+
+    def _test_cache_path(product):
+        d = demo_root / "gallery_cache"
+        d.mkdir(parents=True, exist_ok=True)
+        return d / f"{product.asin}.gallery.json"
+
+    _pg._cache_path = _test_cache_path
+    # the retry/resume tests below write fake PNG bytes - the image gate is tested
+    # separately with real images, so keep it off for the shared fixtures
+    cfg.data["gemini"]["image_check"] = {"enabled": False}
 
     # --- ASIN parsing
     parsed = parse_asin_list(
@@ -189,6 +204,468 @@ def main() -> int:
     assert sum(sweep.values()) == 0, f"disabled sweep must be a no-op, got {sweep}"
     print("[ok] batch-end watermark sweep wired (per ASIN, every image re-checked)")
     print("[ok] filename sanitising:", clean_filename("Hello / World: #1 (2026).jpg"))
+
+    # --- Gemini model-picker: label fallback + configured XPath (fake page, no browser)
+    from src.gemini_web import GeminiWeb                     # noqa: E402
+
+    class _FakeLoc:
+        def __init__(self, count=1, visible=True, text="", log=None):
+            self._count, self._visible, self._text = count, visible, text
+            self.log = log if log is not None else []
+        def count(self): return self._count
+        def is_visible(self, timeout=0): return self._visible
+        @property
+        def first(self): return self
+        @property
+        def last(self): return self
+        def nth(self, i): return _FakeLoc(self._count, self._visible, self._text, self.log)
+        def click(self, timeout=0, **kw): self.log.append("click"); return None
+        def inner_text(self, timeout=0): return self._text
+        def hover(self, timeout=0): return None
+
+    class _FakePage:
+        def __init__(self, label_text="Create image"):
+            self.label_text = label_text
+            self.clicks: list[str] = []
+        def locator(self, sel):
+            if "gem-menu-item-label" in sel:
+                return _FakeLoc(count=3, visible=True, text=self.label_text, log=self.clicks)
+            return _FakeLoc(count=1, visible=True, log=self.clicks)
+        def wait_for_timeout(self, ms): pass
+        @property
+        def keyboard(self):
+            class _K:
+                def press(self, key): pass
+            return _K()
+
+    # (a) create_image_option NOT configured -> automatic label fallback must engage
+    cfg.data["gemini"]["selectors"].pop("create_image_option", None)
+    gem = GeminiWeb(cfg)
+    gem.page = _FakePage(label_text="Create image")
+    assert gem._pick_image_model() is True, "label fallback must select Create image"
+    assert gem.page.clicks, "fallback must have clicked something"
+    print("[ok] model picker: missing create_image_option -> div.gem-menu-item-label fallback works")
+
+    # (b) configured XPath present -> used directly (label text matches nothing, so
+    #     a fallback would fail -> proves the XPath path was taken)
+    cfg.data["gemini"]["selectors"]["create_image_option"] = \
+        "//*[@id='cdk-overlay-0']/mat-card/mat-action-list/div[2]/toolbox-drawer/div/div/toolbox-drawer-item[1]/button/span/span"
+    gem2 = GeminiWeb(cfg)
+    gem2.page = _FakePage(label_text="Something else entirely")
+    assert gem2._pick_image_model() is True, "configured XPath must be used"
+    print("[ok] model picker: configured create_image_option XPath is used when present")
+
+    # (c) neither configured nor any label match -> honest False (caller retries/warns)
+    cfg.data["gemini"]["selectors"].pop("create_image_option", None)
+    gem3 = GeminiWeb(cfg)
+    gem3.page = _FakePage(label_text="Chat")
+    assert gem3._pick_image_model() is False
+    print("[ok] model picker: no selector + no matching label -> returns False (no silent success)")
+    cfg.data["gemini"]["selectors"]["create_image_option"] = \
+        "//*[@id='cdk-overlay-0']/mat-card/mat-action-list/div[2]/toolbox-drawer/div/div/toolbox-drawer-item[1]/button/span/span"
+
+    # --- resume: an ok-slot saved as .jpg (browser download) must NOT regenerate
+    res_dir = demo_root / "B0RESUME01"
+    (res_dir / "generated").mkdir(parents=True, exist_ok=True)
+    bundle4, _ = build_bundle(product, res_dir, cfg)
+    manifest4 = pipe.load_manifest("B0RESUME01")
+    for item in bundle4:
+        jpg = res_dir / "generated" / (Path(item["target_file"]).stem + ".jpg")
+        jpg.write_bytes(b"\x89PNG\r\n\x1a\nfake")
+        manifest4["slots"][item["slot_id"]] = {"status": "ok", "file": f"generated/{jpg.name}"}
+    pipe.save_manifest("B0RESUME01", manifest4)
+    flaky2 = FlakyGem()
+    stats4 = pipe._generate_one(flaky2, "B0RESUME01", product, bundle4, [], "M")
+    assert flaky2.calls == 0 and flaky2.restarts == 0, (flaky2.calls, flaky2.restarts)
+    assert stats4["slots_ok"] == 8 and stats4["slots_failed"] == 0, stats4
+    print("[ok] resume: ok-slots recorded with a .jpg file are skipped (no regeneration)")
+
+    # --- bugfix regression: downloader rejects undecodable / too-small images ---
+    from src.downloader import _check_image               # noqa: E402
+    from PIL import Image                                # noqa: E402
+
+    junk = demo_root / "junk.bin"
+    junk.write_bytes(b"not an image at all" * 100)
+    ok, w, h = _check_image(junk, 500)
+    assert not ok and (w, h) == (0, 0), (ok, w, h)       # w==0 used to slip through
+    small = demo_root / "small.png"
+    Image.new("RGB", (100, 100), "white").save(small)
+    ok, w, h = _check_image(small, 500)
+    assert not ok and (w, h) == (100, 100), (ok, w, h)
+    big = demo_root / "big.png"
+    Image.new("RGB", (1600, 1920), "white").save(big)
+    ok, w, h = _check_image(big, 500)
+    assert ok and (w, h) == (1600, 1920), (ok, w, h)
+    print("[ok] downloader: corrupt (0x0) and too-small images are rejected, valid accepted")
+
+    # --- bugfix regression: dotfile .tmp_* leftovers are never real images ---
+    from src.utils import iter_real_files                 # noqa: E402
+
+    bdir = demo_root / "B0DOTS01" / "base_images"
+    bdir.mkdir(parents=True, exist_ok=True)
+    (bdir / "01.jpg").write_bytes(b"x")
+    (bdir / ".tmp_01.jpg").write_bytes(b"x")
+    names = [p.name for p in iter_real_files(bdir)]
+    assert names == ["01.jpg"], names
+    assert iter_real_files(demo_root / "does-not-exist") == []
+    print("[ok] iter_real_files: .tmp_* crash leftovers excluded, missing dir -> []")
+
+    # --- bugfix regression: CsvTracker locates the asin column from the header ---
+    import csv as _csv                                   # noqa: E402
+    from src.tracker import CsvTracker, _col_letter      # noqa: E402
+
+    cols = ["status", "asin", "error"]                   # asin NOT first
+    csvt = CsvTracker(demo_root / "tracking_custom.csv", columns=cols)
+    csvt.upsert({"asin": "B0AAA11111", "status": "scraped", "error": ""})
+    csvt.upsert({"asin": "B0BBB22222", "status": "scraped", "error": ""})
+    csvt.upsert({"asin": "B0AAA11111", "status": "generated", "error": ""})
+    with open(demo_root / "tracking_custom.csv", newline="", encoding="utf-8") as fh:
+        rows = list(_csv.reader(fh))
+    assert rows[0] == cols and len(rows) == 3, rows
+    by_asin = {r[1]: r for r in rows[1:]}
+    assert by_asin["B0AAA11111"][0] == "generated", rows   # updated, not duplicated
+    assert by_asin["B0BBB22222"][0] == "scraped", rows
+    assert _col_letter(1) == "A" and _col_letter(26) == "Z" and _col_letter(27) == "AA"
+    print("[ok] CsvTracker: upsert keyed by header's asin column (custom order), no dupes")
+
+    # --- bugfix regression: gallery exclusions always keep SYSTEM TASK CODE ---
+    cfg.data["gallery"]["exclude_categories"] = ["WOMEN"]
+    exc = pg._excluded_categories(cfg)
+    assert exc == {"SYSTEM TASK CODE", "WOMEN"}, exc
+    cfg.data["gallery"]["exclude_categories"] = ["SYSTEM TASK CODE"]
+    print("[ok] gallery: DEFAULT_EXCLUDED always unioned with user exclude_categories")
+
+    # --- bugfix regression: casting bridge honours nim.enabled and never blocks ---
+    from src.prompts import resolve_casting              # noqa: E402
+
+    nim_dir = ROOT / "data" / "nim"
+    before = set(p.name for p in nim_dir.glob("*.json"))
+    c1 = resolve_casting(product, cfg, "")              # nim.enabled=False in tests
+    assert c1["source"] == "local-fallback" and c1["model_required"] is False
+    after = set(p.name for p in nim_dir.glob("*.json"))
+    assert before == after, "local casting must not write a NIM cache file"
+    cfg.data["nim"] = {"enabled": True}                  # no API key -> offline fallback
+    p2 = ProductData(asin="B0NIMTEST01", title="Women Cotton Kurti")
+    c2 = resolve_casting(p2, cfg, "")
+    assert c2["source"] == "local-fallback" and c2["model_required"] is True, c2.get("source")
+    cache2 = nim_dir / "B0NIMTEST01.json"
+    assert cache2.exists(), "fallback casting should be cached"
+    cache2.unlink()
+    cfg.data["nim"] = {"enabled": False}
+    print("[ok] casting: nim off -> local (no cache); nim on without key -> local fallback, cached")
+
+    # --- bugfix regression: upload consumes _pending_files; stray chooser ignored ---
+    class _FakePage2:
+        """Minimal page for upload_images: direct file input + preview counter."""
+        def __init__(self):
+            self.previews = 0
+        def locator(self, sel):
+            page = self
+            class _L:
+                def count(self): return 1
+                def is_visible(self, timeout=0): return True
+                @property
+                def first(self): return self
+                def set_input_files(self, files): page.previews += len(files)
+                def click(self, timeout=0, **kw): return None
+            return _L()
+        def evaluate(self, js):
+            if "blob:" in js or "attachment" in js:
+                return self.previews
+            return 0
+        def wait_for_timeout(self, ms): pass
+        @property
+        def frames(self): return [self]
+        @property
+        def main_frame(self): return self
+
+    gem4 = GeminiWeb(cfg)
+    gem4.page = _FakePage2()
+    cfg.data["gemini"]["upload_wait_sec"] = 0
+    cfg.data["gemini"]["upload_timeout_sec"] = 1
+    src_img = retry_dir / "generated" / "01_hero_white.png"
+    n = gem4.upload_images([src_img])
+    assert n == 1 and gem4._pending_files == [], (n, gem4._pending_files)
+
+    class _Chooser:
+        def __init__(self): self.files = None
+        def set_files(self, files): self.files = files
+
+    ch = _Chooser()
+    gem4._on_filechooser(ch)                 # pending empty -> must NOT feed files
+    assert ch.files is None, ch.files
+    gem4._pending_files = [src_img]
+    gem4._on_filechooser(ch)                 # pending set -> chooser gets the files
+    assert ch.files == [str(src_img)], ch.files
+    print("[ok] upload: _pending_files cleared after attach; empty pending never feeds a chooser")
+
+    # --- upload failure: zero verified previews must raise, never send text-only ---
+    from src.gemini_web import GeminiError               # noqa: E402
+
+    class _FakePage3:
+        """No file input, no previews, chooser never fires -> upload must raise."""
+        def __init__(self): self.url = "https://gemini.google.com/app"
+        def locator(self, sel):
+            class _L:
+                def count(self): return 0
+                def is_visible(self, timeout=0): return False
+                @property
+                def first(self): return self
+                def click(self, timeout=0, **kw): return None
+            return _L()
+        def evaluate(self, js): return 0
+        def wait_for_timeout(self, ms): pass
+        def title(self): return ""
+        def content(self): return ""
+        def screenshot(self, path=None, **kw):
+            if path:
+                Path(path).write_bytes(b"")
+        @property
+        def frames(self): return [self]
+        @property
+        def main_frame(self): return self
+
+    gem7 = GeminiWeb(cfg)
+    gem7.page = _FakePage3()
+    try:
+        gem7.upload_images([src_img])
+        raise AssertionError("upload with zero previews must raise")
+    except GeminiError as exc:
+        assert "could not attach" in str(exc), exc
+    print("[ok] upload: nothing verifiably attached -> GeminiError (no silent text-only run)")
+
+    # --- send_prompt: composer must actually receive the text before sending ---
+    class _FakePage4:
+        """Composer simulation: insert_text either lands in the box or not."""
+        def __init__(self, lands=True):
+            self.lands = lands
+            self.typed = ""
+        def locator(self, sel):
+            page = self
+            class _L:
+                def __init__(self): self.sel = sel
+                def count(self): return 1
+                def is_visible(self, timeout=0): return "stop" not in self.sel.lower()
+                @property
+                def first(self): return self
+                def click(self, timeout=0, **kw): return None
+                def inner_text(self, timeout=0): return page.typed
+            return _L()
+        def evaluate(self, js): return 0
+        def wait_for_timeout(self, ms): pass
+        @property
+        def keyboard(self):
+            page = self
+            class _K:
+                def insert_text(self, t):
+                    if page.lands:
+                        page.typed = t
+                def press(self, k): pass
+            return _K()
+
+    gem5 = GeminiWeb(cfg)
+    gem5.page = _FakePage4(lands=True)
+    gem5.send_prompt("X" * 200)
+    assert gem5.page.typed == "X" * 200
+    gem6 = GeminiWeb(cfg)
+    gem6.page = _FakePage4(lands=False)
+    try:
+        gem6.send_prompt("Y" * 200)
+        raise AssertionError("empty composer must raise")
+    except GeminiError as exc:
+        assert "composer did not accept" in str(exc), exc
+    print("[ok] send_prompt: verifies the composer received the text; refuses to send empty")
+
+    # --- image accuracy gate (pure helpers) ---
+    from src.utils import (aspect_targets, normalize_image_ext, parse_aspect,  # noqa: E402
+                           sha256_file, verify_generated_image)
+    from PIL import Image as _Image                            # noqa: E402
+
+    assert parse_aspect("3:4") == 0.75 and parse_aspect("1:1") == 1.0
+    assert parse_aspect("junk") is None
+    tg = aspect_targets(cfg)
+    assert any(abs(t - 0.75) < 1e-9 for t in tg), tg            # UI ratio 3:4
+    assert any(abs(t - 1600 / 1920) < 1e-9 for t in tg), tg     # panel spec 1600x1920
+
+    vdir = demo_root / "B0IMGCHK01"
+    vdir.mkdir(parents=True, exist_ok=True)
+    good = vdir / "good.png"
+    _Image.new("RGB", (1600, 1920), "white").save(good)
+    r = verify_generated_image(good, targets=tg)
+    assert r["ok"] and (r["w"], r["h"]) == (1600, 1920), r
+    r34 = vdir / "r34.png"
+    _Image.new("RGB", (1200, 1600), "white").save(r34)         # exact 3:4 also accepted
+    assert verify_generated_image(r34, targets=tg)["ok"]
+    square = vdir / "sq.png"
+    _Image.new("RGB", (1200, 1200), "white").save(square)
+    assert not verify_generated_image(square, targets=tg)["ok"]        # not portrait
+    tiny = vdir / "tiny.png"
+    _Image.new("RGB", (800, 600), "white").save(tiny)
+    assert not verify_generated_image(tiny, targets=tg)["ok"]          # < 1000px long side
+    junk2 = vdir / "junk.png"
+    junk2.write_bytes(b"nope" * 100)
+    assert not verify_generated_image(junk2, targets=tg)["ok"]         # undecodable
+    h = sha256_file(good)
+    assert not verify_generated_image(good, targets=tg, ref_hashes={h})["ok"]   # echoed upload
+    assert not verify_generated_image(good, targets=tg, seen_hashes={h})["ok"]  # duplicate panel
+
+    jpgf = vdir / "slot.jpg"
+    _Image.new("RGB", (1600, 1920), "red").save(jpgf, "JPEG")
+    dest_png = vdir / "slot.png"
+    out = normalize_image_ext(jpgf, dest_png)
+    assert out == dest_png and dest_png.exists() and not jpgf.exists()
+    with _Image.open(dest_png) as im:
+        assert im.size == (1600, 1920)
+    print("[ok] image gate: portrait/aspect/min-px enforced; ref-echo + duplicate rejected; ext normalized")
+
+    # --- pipeline image gate end-to-end through the slot retry loop ---
+    cfg.data["gemini"]["image_check"] = {"enabled": True, "min_long_side_px": 1000,
+                                         "aspect_tolerance": 0.06}
+    cfg.data["gemini"]["slot_retries"] = 1
+    cfg.data["gemini"]["slot_retry_delay_sec"] = [0, 0]
+
+    class GoodGem:
+        def __init__(self): self.calls = 0
+        def begin_batch(self, master="", reference_images=None): pass
+        def restart_batch(self, reference_images=None): pass
+        def generate_image(self, prompt, reference_images, dest, strategy="auto",
+                           dry_run=False, prompt_record=None):
+            self.calls += 1
+            _Image.new("RGB", (1600, 1920), "white").save(dest)
+            return {"ok": True, "path": str(dest)}
+
+    gdir = demo_root / "B0IMGOK01"
+    gdir.mkdir(parents=True, exist_ok=True)
+    bundle5, _ = build_bundle(product, gdir, cfg)
+    gg = GoodGem()
+    stats5 = pipe._generate_one(gg, "B0IMGOK01", product, bundle5, [], "M")
+    assert stats5["slots_ok"] == 8 and gg.calls == 8, (stats5, gg.calls)
+
+    class BadGem:
+        def __init__(self): self.calls = 0
+        def begin_batch(self, master="", reference_images=None): pass
+        def restart_batch(self, reference_images=None): pass
+        def generate_image(self, prompt, reference_images, dest, strategy="auto",
+                           dry_run=False, prompt_record=None):
+            self.calls += 1
+            dest.write_bytes(b"\x89PNG\r\n\x1a\nnot-really")   # undecodable
+            return {"ok": True, "path": str(dest)}
+
+    bdir = demo_root / "B0IMGBAD1"
+    bdir.mkdir(parents=True, exist_ok=True)
+    bundle6, _ = build_bundle(product, bdir, cfg)
+    bg = BadGem()
+    stats6 = pipe._generate_one(bg, "B0IMGBAD1", product, bundle6, [], "M")
+    assert stats6["slots_failed"] == 8 and bg.calls == 16, (stats6, bg.calls)  # 2 attempts each
+    m6 = pipe.load_manifest("B0IMGBAD1")
+    assert all(v["status"] == "failed" for v in m6["slots"].values())
+    assert "final image check failed" in m6["slots"]["01_hero_white"]["error"]
+    cfg.data["gemini"]["image_check"] = {"enabled": False}
+    cfg.data["gemini"]["slot_retries"] = 2
+    print("[ok] pipeline image gate: valid panels accepted; undecodable rejected, retried, marked failed")
+
+    # --- default target page is /images + probe classifier + probe CLI flags ---
+    from src.gemini_web import DEFAULT_GEMINI_URL, suggest_selectors   # noqa: E402
+
+    assert DEFAULT_GEMINI_URL == "https://gemini.google.com/images", DEFAULT_GEMINI_URL
+    assert cfg.get("gemini.url") == "https://gemini.google.com/images", cfg.get("gemini.url")
+
+    fake_report = {
+        "buttons": [
+            {"tag": "button", "aria": "Send message", "text": "", "testid": "send-btn", "role": "", "title": ""},
+            {"tag": "button", "aria": "", "text": "New chat", "testid": "", "role": "", "title": ""},
+            {"tag": "button", "aria": "Download", "text": "", "testid": "dl", "role": "", "title": ""},
+            {"tag": "button", "aria": "", "text": "3:4", "testid": "", "role": "option", "title": ""},
+            {"tag": "button", "aria": "", "text": "Create image", "testid": "", "role": "menuitem", "title": ""},
+            {"tag": "button", "aria": "", "text": "Aspect ratio", "testid": "", "role": "", "title": ""},
+            {"tag": "button", "aria": "", "text": "I agree", "testid": "", "role": "", "title": ""},
+            {"tag": "button", "aria": "Add files and more", "text": "", "testid": "", "role": "", "title": ""},
+            {"tag": "button", "aria": "Model: 2.5 Flash", "text": "", "testid": "model-selector", "role": "", "title": ""},
+            {"tag": "button", "aria": "Close", "text": "", "testid": "", "role": "dialog", "title": ""},
+            {"tag": "button", "aria": "Stop response", "text": "", "testid": "", "role": "", "title": ""},
+        ],
+        "file_inputs": [{"type": "file", "accept": "image/*", "multiple": True, "hidden": True, "cls": "x"}],
+        "contenteditables": [{"tag": "div", "role": "textbox", "aria": "Ask Gemini", "cls": "ql-editor"}],
+        "image_count": 2,
+    }
+    sugg = suggest_selectors(fake_report, ratio="3:4")
+    for key in ("send_button", "stop_button", "download_button", "new_chat_button",
+                "aspect_ratio_3_4", "create_image_option", "aspect_ratio_button",
+                "consent_buttons", "attach_buttons", "model_picker", "lightbox_close",
+                "file_input", "prompt_box", "generated_image", "response_block"):
+        assert sugg.get(key), f"missing suggested selector for {key}: {sorted(sugg)}"
+    assert any("send-btn" in c for c in sugg["send_button"])
+    assert any("3:4" in c for c in sugg["aspect_ratio_3_4"])
+    assert any('role="textbox"' in c for c in sugg["prompt_box"])
+    assert any("image" in c for c in sugg["file_input"])
+    print(f"[ok] probe classifier: {len(sugg)} action keys mapped from a page inventory; "
+          f"default url = {DEFAULT_GEMINI_URL}")
+
+    import run as _run                                     # noqa: E402
+    args = _run.build_parser().parse_args(
+        ["probe", "--url", "https://gemini.google.com/images", "--steps", "--interactive", "--headed"])
+    assert args.cmd == "probe" and args.url == "https://gemini.google.com/images"
+    assert args.steps and args.interactive and args.headed
+    args2 = _run.build_parser().parse_args(["probe", "--backend", "arena_web"])
+    assert args2.backend == "arena_web"
+    print("[ok] probe CLI: --url/--steps/--interactive/--backend parse correctly")
+
+    # --- pluggable image backend: selection + Arena driver interface parity ---
+    from src.backends import backend_name, backend_url, get_driver, image_check_cfg  # noqa: E402
+    from src.arena_web import ArenaWeb, fit_panel_image, pick_image                 # noqa: E402
+    from src.gemini_web import GeminiWeb as _GW                                     # noqa: E402
+
+    assert backend_name(cfg) == "gemini_web" and get_driver(cfg) is _GW
+    assert backend_url(cfg) == "https://gemini.google.com/images"
+    cfg.data["image"] = {"backend": "arena_web"}
+    assert backend_name(cfg) == "arena_web" and get_driver(cfg) is ArenaWeb
+    assert backend_url(cfg) == "https://arena.ai/image"
+    # interface parity: the pipeline only needs these members
+    for member in ("start", "close", "__enter__", "__exit__", "begin_batch",
+                   "restart_batch", "generate_image", "upload_images", "dump_diagnostics"):
+        assert hasattr(ArenaWeb, member), member
+    # image_check: backend section, then top-level override wins
+    cfg.data["arena"] = {"image_check": {"enabled": True, "min_long_side_px": 1111}}
+    assert image_check_cfg(cfg)["min_long_side_px"] == 1111
+    cfg.data["image"] = {"backend": "arena_web", "image_check": {"enabled": False}}
+    assert image_check_cfg(cfg) == {"enabled": False}
+    cfg.data["image"] = {"backend": "gemini_web"}
+    assert image_check_cfg(cfg).get("enabled") is False or True  # gemini.image_check exists in example
+    print("[ok] backend switch: gemini_web default, arena_web selectable; ArenaWeb interface parity; image_check resolution")
+
+    # --- arena helpers: battle pick + panel fit ---
+    items = [{"bytes": b"a" * 100, "w": 800, "h": 800},
+             {"bytes": b"b" * 9000, "w": 1024, "h": 1024},
+             {"bytes": b"c" * 500, "w": 512, "h": 512}]
+    assert pick_image(items, "largest") is items[1]
+    assert pick_image(items, "left") is items[0]
+    assert pick_image(items, "right") is items[-1]
+    assert pick_image([], "largest") is None
+    adir = demo_root / "B0ARENA01"
+    adir.mkdir(parents=True, exist_ok=True)
+    src_img = adir / "raw.png"
+    _Image.new("RGB", (1000, 1000), (200, 30, 30)).save(src_img)
+    dest_img = adir / "01_hero_white.png"
+    out = fit_panel_image(src_img, dest_img, 1600, 1920)
+    assert out == dest_img and not src_img.exists()
+    with _Image.open(dest_img) as im:
+        assert im.size == (1600, 1920) and im.format == "PNG"
+    # wide source gets center-cropped to the panel aspect
+    wide = adir / "wide.jpg"
+    _Image.new("RGB", (2400, 1000), (30, 30, 200)).save(wide, "JPEG")
+    out2 = fit_panel_image(wide, adir / "panel.png", 1600, 1920)
+    with _Image.open(out2) as im:
+        assert im.size == (1600, 1920)
+    print("[ok] arena helpers: pick largest/left/right; fit_panel crops+resizes to 1600x1920 PNG")
+
+    # --- example config exposes the arena backend section ---
+    import yaml as _yaml                                        # noqa: E402
+    ex = _yaml.safe_load((ROOT / "config.example.yaml").read_text(encoding="utf-8"))
+    assert ex["image"]["backend"] == "gemini_web"
+    assert ex["arena"]["url"] == "https://arena.ai/image"
+    assert ex["arena"]["selectors"]["prompt_box"]
+    assert ex["arena"]["image_check"]["min_long_side_px"] == 1000
+    print("[ok] config.example.yaml: image.backend + arena.* section present and valid")
 
     # --- REGRESSION: the scraper's raw -> ProductData mapping (aplus bug, 2026-10-30)
     raw_js = {

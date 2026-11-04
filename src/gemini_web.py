@@ -14,13 +14,13 @@ from __future__ import annotations
 
 import base64
 import datetime as dt
-import json
 import time
 from pathlib import Path
 from typing import Any
 
 from .config import Config
-from .utils import PROJECT_ROOT, ensure_dir, human_delay, log, write_json
+from .utils import (PROJECT_ROOT, aspect_targets, ensure_dir, human_delay, log,
+                    normalize_image_ext, sha256_file, verify_generated_image, write_json)
 
 JS_COUNT_IMAGES = """
 () => {
@@ -85,8 +85,20 @@ JS_BUTTONS = """
     testid: n.getAttribute('data-test-id') || '',
     text: (n.innerText || '').trim().replace(/\\s+/g, ' ').slice(0, 60),
     visible: !!(n.offsetWidth || n.offsetHeight || n.getClientRects().length),
+    // truncated outerHTML so an exact XPath can be derived from the dump
+    html: (n.outerHTML || '').replace(/\\s+/g, ' ').slice(0, 300),
   })).filter(b => b.aria || b.text || b.testid || b.title);
 }
+"""
+
+# contenteditable elements on the page (the composer / prompt box lives here)
+JS_CONTENTEDITABLES = """
+() => Array.from(document.querySelectorAll('[contenteditable="true"]')).slice(0, 20).map(n => ({
+  tag: n.tagName.toLowerCase(),
+  role: n.getAttribute('role') || '',
+  aria: n.getAttribute('aria-label') || '',
+  cls: (n.className || '').toString().slice(0, 80),
+}))
 """
 
 JS_FILE_INPUTS = """
@@ -128,6 +140,138 @@ class GeminiError(RuntimeError):
     pass
 
 
+# ---------------------------------------------------------------------------
+# Probe -> config bridge: turn a dumped page inventory into selector candidates
+# ---------------------------------------------------------------------------
+def _css_candidates(b: dict[str, Any]) -> list[str]:
+    """Concrete CSS selectors for one dumped button/link, most stable first."""
+    cands: list[str] = []
+    tag = b.get("tag") or "button"
+    if b.get("testid"):
+        cands.append(f'{tag}[data-test-id="{b["testid"]}"]')
+    if b.get("aria"):
+        cands.append(f'{tag}[aria-label="{b["aria"]}"]')
+    if b.get("role"):
+        cands.append(f'{tag}[role="{b["role"]}"]')
+    text = (b.get("text") or "").strip()
+    if text and len(text) <= 40:
+        cands.append(f'{tag}:has-text("{text}")')
+    return cands
+
+
+def suggest_selectors(report: dict[str, Any], ratio: str = "3:4") -> dict[str, list[str]]:
+    """Map a probe report ({buttons, file_inputs, contenteditables}) onto the
+    gemini.selectors.* action keys with concrete candidate selectors.
+
+    Pure function (no browser) so it is unit-testable offline. Menu-only items
+    (create_image_option, aspect_ratio options) only appear in step dumps taken
+    while the menu is open - that is what `run.py probe --steps` is for.
+    """
+    import re as _re
+
+    out: dict[str, list[str]] = {}
+
+    def add(key: str, cands: list[str]) -> None:
+        for c in cands:
+            if c not in out.setdefault(key, []):
+                out[key].append(c)
+
+    for b in report.get("buttons") or []:
+        cands = _css_candidates(b)
+        if not cands:
+            continue
+        blob = f"{b.get('aria', '')} {b.get('testid', '')} {b.get('text', '')} {b.get('title', '')}".lower()
+        if "send" in blob:
+            add("send_button", cands)
+        if "stop" in blob:
+            add("stop_button", cands)
+        if "download" in blob:
+            add("download_button", cands)
+        if "close" in str(b.get("aria", "")).lower():
+            add("lightbox_close", cands)
+        if "new chat" in blob:
+            add("new_chat_button", cands)
+        if any(w in blob for w in ("i agree", "accept all", "got it", "accept")):
+            add("consent_buttons", cands)
+        if any(w in blob for w in ("add files", "add file", "upload", "attach", "add photos")) \
+                or str(b.get("aria", "")).lower().startswith("add"):
+            add("attach_buttons", cands)
+        if "model" in blob:
+            add("model_picker", cands)
+        if "create image" in blob:
+            add("create_image_option", cands)
+        if "aspect ratio" in blob:
+            add("aspect_ratio_button", cands)
+        # a bare ratio option (e.g. "3:4") inside an open aspect menu
+        if _re.fullmatch(r"\d+\s*:\s*\d+", (b.get("text") or "").strip()):
+            ratio_key = _re.sub(r"[^0-9A-Za-z]+", "_", ratio).strip("_")
+            add(f"aspect_ratio_{ratio_key}", cands)
+
+    fis = report.get("file_inputs") or []
+    if any(f.get("type") == "file" for f in fis):
+        add("file_input", ['input[type="file"]'])
+        if any("image" in (f.get("accept") or "") for f in fis):
+            add("file_input", ['input[accept*="image"]'])
+
+    for ce in report.get("contenteditables") or []:
+        cands = []
+        if ce.get("aria"):
+            cands.append(f'{ce["tag"]}[contenteditable="true"][aria-label="{ce["aria"]}"]')
+        if ce.get("role"):
+            cands.append(f'{ce["tag"]}[contenteditable="true"][role="{ce["role"]}"]')
+        cands.append(f'{ce["tag"]}[contenteditable="true"]')
+        add("prompt_box", cands)
+
+    if (report.get("image_count") or 0) > 0:
+        add("generated_image", ["model-response img", "message-content img"])
+        add("response_block", ["model-response", "message-content"])
+    return out
+
+
+# Default target page. /images is the dedicated image-generation surface (the
+# composer starts in image mode there); override per-environment via
+# gemini.url in config.yaml or GEMINI_URL in .env. Capture fresh selectors for
+# the page with: python run.py probe --url https://gemini.google.com/images --steps
+DEFAULT_GEMINI_URL = "https://gemini.google.com/images"
+
+
+def dump_page_diagnostics(page, tag: str = "probe",
+                          out_dir: Path | None = None) -> dict[str, Any]:
+    """Save DOM + screenshot + button/file-input/contenteditable inventory for any
+    page (shared by the Gemini and Arena drivers). Returns the report dict."""
+    stamp = dt.datetime.now().strftime("%Y%m%d_%H%M%S")
+    out = ensure_dir(out_dir or (PROJECT_ROOT / "logs" / "gemini"))
+    html_path = out / f"{tag}_{stamp}.html"
+    shot_path = out / f"{tag}_{stamp}.png"
+    json_path = out / f"{tag}_{stamp}.json"
+
+    report: dict[str, Any] = {"tag": tag, "at": dt.datetime.now().isoformat(timespec="seconds")}
+    try:
+        report["url"] = page.url
+        report["title"] = page.title()
+        report["file_inputs"] = page.evaluate(JS_FILE_INPUTS)
+        report["buttons"] = page.evaluate(JS_BUTTONS)
+        report["contenteditables"] = page.evaluate(JS_CONTENTEDITABLES)
+        report["upload_previews"] = page.evaluate(JS_UPLOAD_PREVIEWS)
+        report["image_count"] = page.evaluate(JS_COUNT_IMAGES)
+        frames = getattr(page, "frames", None) or [page.main_frame]
+        report["frames"] = [f.url for f in frames]
+    except Exception as exc:  # noqa: BLE001
+        report["error"] = str(exc)
+    try:
+        html_path.write_text(page.content(), encoding="utf-8")
+        page.screenshot(path=str(shot_path), full_page=True)
+    except Exception as exc:  # noqa: BLE001
+        log.debug("diagnostics capture issue: %s", exc)
+
+    report["json"] = str(json_path)
+    report["html"] = str(html_path)
+    report["screenshot"] = str(shot_path)
+    write_json(json_path, report)
+    log.info("diagnostics saved -> %s", json_path)
+    return report
+
+
 class GeminiWeb:
     def __init__(self, cfg: Config, headless: bool = False):
         self.cfg = cfg
@@ -144,6 +288,8 @@ class GeminiWeb:
         self._baseline_blocks = 0     # model replies present before it was sent
         self._refs_attached = False   # reference photos already inside the batch chat
         self._active_master = ""      # AIIE master message (kept for retry restarts)
+        self._ref_hashes: set[str] = set()    # sha256 of uploaded refs (echo detection)
+        self._seen_hashes: set[str] = set()   # sha256 of panels already accepted this batch
         # download routing: every image Gemini hands us must land at its related place
         self._pending_dest: Path | None = None      # output/<ASIN>/generated/<slot file>
         self._handled_download: Path | None = None
@@ -169,7 +315,7 @@ class GeminiWeb:
         # KEY FIX: route every download straight to its related place
         self.page.on("download", self._on_download)
 
-        self.page.goto(self.cfg.get("gemini.url", "https://gemini.google.com/app"),
+        self.page.goto(self._gemini_url(),
                        wait_until="domcontentloaded")
         self.page.wait_for_timeout(2500)
         self._cool_down_on_block()
@@ -202,6 +348,9 @@ class GeminiWeb:
 
     def _sel(self, key: str, default: str = "") -> str:
         return self.cfg.get(f"gemini.selectors.{key}", default) or default
+
+    def _gemini_url(self) -> str:
+        return self.cfg.get("gemini.url", DEFAULT_GEMINI_URL) or DEFAULT_GEMINI_URL
 
     def _frames(self):
         try:
@@ -247,11 +396,21 @@ class GeminiWeb:
 
     # ------------------------------------------------------------- traffic blocks
     def _looks_blocked(self) -> bool:
-        """True when Google served its /sorry/ traffic-check page instead of Gemini."""
+        """True when Google served a traffic-check/rate-limit page instead of Gemini.
+
+        Checks the URL (/sorry/) AND configurable content markers on the page body
+        ("unusual traffic" etc.) - Google sometimes shows the block inline.
+        """
         try:
-            return "/sorry/" in (self.page.url or "")
+            if "/sorry/" in (self.page.url or ""):
+                return True
+            markers = self.cfg.get("gemini.block_markers") or []
+            if markers:
+                body = (self.page.content() or "")[:400000].lower()
+                return any(str(m).lower() in body for m in markers)
         except Exception:  # noqa: BLE001
             return False
+        return False
 
     def _cool_down_on_block(self) -> None:
         """Wait out the /sorry/ block once and retry; give up with a clear error."""
@@ -267,7 +426,7 @@ class GeminiWeb:
             pass
         self.page.wait_for_timeout(wait * 1000)
         try:
-            self.page.goto(self.cfg.get("gemini.url", "https://gemini.google.com/app"),
+            self.page.goto(self._gemini_url(),
                            wait_until="domcontentloaded")
             self.page.wait_for_timeout(2500)
         except Exception:  # noqa: BLE001
@@ -414,9 +573,14 @@ class GeminiWeb:
             try:
                 fi.set_input_files([str(p) for p in paths])
                 self.page.wait_for_timeout(upload_wait * 1000)
-                if self._preview_count() > baseline:
-                    log.info("attached %d image(s) via <input type=file>", len(paths))
-                    return len(paths)
+                now = self._preview_count()
+                if now > baseline:
+                    # report the VERIFIED delta, not the requested count
+                    delta = (now - baseline) if (now >= 0 and baseline >= 0) else len(paths)
+                    n = max(1, min(delta, len(paths)))
+                    log.info("attached %d image(s) via <input type=file>", n)
+                    self._pending_files = []   # consumed - never feed a later stray chooser
+                    return n
                 log.debug("input accepted files but no upload preview appeared - "
                           "falling back to the chooser")
             except Exception as exc:  # noqa: BLE001
@@ -441,8 +605,12 @@ class GeminiWeb:
 
         if attached:
             self.page.wait_for_timeout(upload_wait * 1000)
-            log.info("attached %d reference image(s)", len(paths))
-            return len(paths)
+            now = self._preview_count()
+            delta = (now - baseline) if (now >= 0 and baseline >= 0 and now > baseline) else len(paths)
+            n = max(1, min(delta, len(paths)))
+            log.info("attached %d reference image(s)", n)
+            self._pending_files = []       # consumed - never feed a later stray chooser
+            return n
 
         diag = self.dump_diagnostics("upload_failed")
         raise GeminiError(
@@ -542,8 +710,12 @@ class GeminiWeb:
             return False
         self.page.wait_for_timeout(1000)
 
-        # Use exact XPath for "Create image" option
+        # Select "Create image": exact XPath/CSS from config first, then the robust
+        # label-based click (div.gem-menu-item-label) as an AUTOMATIC fallback, so a
+        # UI change that breaks the configured selector cannot silently disable
+        # image mode (the failure mode is text-only replies for every slot).
         create_img_sel = self._sel("create_image_option", '')
+        picked = False
         if create_img_sel:
             try:
                 if create_img_sel.startswith('//') or create_img_sel.startswith('xpath='):
@@ -552,14 +724,17 @@ class GeminiWeb:
                     loc = self.page.locator(create_img_sel)
                 if loc.count() > 0 and loc.is_visible(timeout=2000):
                     loc.first.click(timeout=3000)
-                    log.info("selected 'Create image' via XPath")
+                    log.info("selected 'Create image' via configured selector")
+                    picked = True
                 else:
-                    return False
+                    log.debug("create_image_option matched nothing - trying label fallback")
             except Exception as e:  # noqa: BLE001
-                log.debug("create_image XPath failed: %s", e)
-                return False
+                log.debug("create_image selector failed (%s) - trying label fallback", e)
         else:
-            log.debug("create_image_option selector not configured")
+            log.debug("create_image_option not configured - using label fallback")
+        if not picked:
+            picked = self._click_create_image_label()
+        if not picked:
             return False
 
         self.page.wait_for_timeout(1200)
@@ -618,34 +793,46 @@ class GeminiWeb:
         2. Upload base/reference images FIRST
         3. Open model picker and select "Create image"
         4. Set aspect ratio to 3:4
-        (No master prompt - slot prompts carry all instructions)
+        5. (optional) send the AIIE master message when gemini.send_master_prompt: true
+           - default off: slot prompts carry all instructions
         """
         self._active_master = (master or "").strip()   # remembered for retry restarts
         self.new_chat()
         self._pending_dest = None       # the master seed is not a slot download
         self._handled_download = None
+        self._seen_hashes = set()       # duplicate-panel detection is per batch chat
 
         # STEP 1: Upload base/reference images FIRST
         if reference_images:
             log.info("uploading %d base/reference images", len(reference_images))
             self.upload_images(reference_images)
             self._refs_attached = True
+            # hash the refs so a slot can be rejected if Gemini just echoes one back
+            self._ref_hashes = {sha256_file(p) for p in reference_images if Path(p).exists()}
         else:
             log.warning("no reference images provided to begin_batch")
 
-        # STEP 2: Open model picker and select "Create image" 
+        # STEP 2: Open model picker and select "Create image"
         if self.cfg.get("gemini.ensure_image_model", False):
             log.info("selecting 'Create image' mode via model picker")
             if not self._pick_image_model():
                 log.warning("failed to select 'Create image' mode - proceeding anyway")
 
-        # STEP 3: Set aspect ratio to 3:4 (done inside _pick_image_model, but ensure)
+        # STEP 3: Set aspect ratio to 3:4 (XPath selectors from config when present,
+        # generic row/label fallback otherwise - done inside _pick_image_model too)
         ratio = str(self.cfg.get("gemini.aspect_ratio", "") or "").strip()
         if ratio:
             log.info("ensuring aspect ratio is %s", ratio)
-            self._set_aspect_ratio_ui()
+            self._set_aspect_ratio_ui_xpath()
 
-        # NO master prompt - slot prompts carry all instructions
+        # STEP 4 (optional): seed the chat with the AIIE master message. Off by
+        # default - slot prompts are self-contained; enable via send_master_prompt.
+        if self._active_master and bool(self.cfg.get("gemini.send_master_prompt", False)):
+            log.info("sending AIIE master message (%d chars)", len(self._active_master))
+            self._pending_dest = None
+            self.send_prompt(self._active_master)
+            self._wait_for_reply(text_ok=True)
+
         log.info("batch chat ready for image generation (strict sequence complete)")
 
     def restart_batch(self, reference_images: list = None) -> None:
@@ -680,7 +867,9 @@ class GeminiWeb:
         streaming_seen = False
         while time.time() < deadline:
             try:
-                running = bool(stop_sel) and self.page.locator(stop_sel).count() > 0
+                running = False
+                if stop_sel:
+                    running = self.page.locator(stop_sel).first.is_visible()
                 if running:
                     streaming_seen = True
                 elif streaming_seen or (text_ok and self._new_reply_ready()) \
@@ -696,11 +885,19 @@ class GeminiWeb:
     # ------------------------------------------------------------- chat
     def new_chat(self) -> None:
         try:
-            self.page.goto(self.cfg.get("gemini.url", "https://gemini.google.com/app"),
+            self.page.goto(self._gemini_url(),
                            wait_until="domcontentloaded")
             self.page.wait_for_timeout(1500)
             self._cool_down_on_block()
             self._dismiss_overlays()
+            # explicitly start a NEW chat when the button is available - navigating to
+            # /app can land on the previous chat, which would break the batch baselines
+            self._click_first(self.cfg.get("gemini.selectors.new_chat_button") or [
+                'button[aria-label*="New chat" i]',
+                'button:has-text("New chat")',
+                '[data-test-id*="new-chat" i]',
+            ], per_selector_ms=800)
+            self.page.wait_for_timeout(600)
         except GeminiError:
             raise
         except Exception as exc:  # noqa: BLE001
@@ -728,11 +925,44 @@ class GeminiWeb:
         except Exception:  # noqa: BLE001
             self._baseline_images = self._baseline_blocks = 0
 
+        # never send into a chat whose previous reply is still streaming - the new
+        # prompt would queue behind it and break the per-slot baseline counting
+        stop_sel = self._sel("stop_button")
+        if stop_sel:
+            try:
+                deadline = time.time() + 30
+                while time.time() < deadline:
+                    if not self.page.locator(stop_sel).first.is_visible():
+                        break
+                    self.page.wait_for_timeout(1000)
+            except Exception:  # noqa: BLE001
+                pass
+
         box = self.page.locator(self._sel("prompt_box", 'div[contenteditable="true"][role="textbox"]')).first
         box.click(timeout=15000)
         self.page.wait_for_timeout(400)
         self.page.keyboard.insert_text(prompt)
         self.page.wait_for_timeout(600)
+
+        # verify the composer actually received the text - a covered/mis-clicked
+        # composer would otherwise send an EMPTY prompt and waste a generation
+        try:
+            got = box.inner_text(timeout=3000) or ""
+        except Exception:  # noqa: BLE001
+            got = ""
+        if len(got) < max(50, len(prompt) // 2):
+            log.warning("composer text check failed (%d/%d chars) - select-all + re-insert once",
+                        len(got), len(prompt))
+            try:
+                box.click(timeout=5000)
+                self.page.keyboard.press("Control+a")
+                self.page.keyboard.insert_text(prompt)
+                self.page.wait_for_timeout(600)
+                got = box.inner_text(timeout=3000) or ""
+            except Exception:  # noqa: BLE001
+                got = ""
+            if len(got) < max(50, len(prompt) // 2):
+                raise GeminiError(f"composer did not accept the prompt ({len(got)}/{len(prompt)} chars)")
 
         sent = False
         try:
@@ -814,12 +1044,16 @@ class GeminiWeb:
         deadline = time.time() + timeout
         started = time.time()
 
-        # phase 1: wait for the streaming cycle (stop button appears and clears)
+        # phase 1: wait for the streaming cycle (stop button appears and clears).
+        # NOTE: visibility, not DOM count - a hidden stop button must not read as
+        # "still streaming" (that used to burn the whole timeout on fast replies).
         self.page.wait_for_timeout(3000)
         streaming_seen = False
         while time.time() < deadline:
             try:
-                running = bool(stop_sel) and self.page.locator(stop_sel).count() > 0
+                running = False
+                if stop_sel:
+                    running = self.page.locator(stop_sel).first.is_visible()
                 if running:
                     streaming_seen = True
                 elif streaming_seen or self._new_reply_ready() or time.time() - started > 15:
@@ -829,7 +1063,9 @@ class GeminiWeb:
             self.page.wait_for_timeout(1200)
 
         # phase 2: wait for the NEW reply to actually contain an image (batch-safe:
-        # counts are measured against the baseline from send_prompt, never '> 0')
+        # counts are measured against the baseline from send_prompt, never '> 0').
+        # Gets its OWN full timeout window - phase 1 may legitimately consume its own.
+        deadline = time.time() + timeout
         while time.time() < deadline:
             try:
                 if self._new_reply_ready():
@@ -873,7 +1109,10 @@ class GeminiWeb:
                         raw = resp.body()
                 except Exception:  # noqa: BLE001
                     raw = None
-            if raw and len(raw) > 20000:
+            # byte floor only guards against decode glitches - the naturalWidth>=200
+            # filter in JS already removed UI icons; a flat-white 1600x1920 hero PNG
+            # can legitimately be smaller than 20 KB, so keep the floor low
+            if raw and len(raw) > 5000:
                 out.append({"bytes": raw, "w": item.get("w"), "h": item.get("h")})
         return out
 
@@ -987,35 +1226,72 @@ class GeminiWeb:
     # ------------------------------------------------------------- diagnostics
     def dump_diagnostics(self, tag: str = "probe") -> dict[str, Any]:
         """Save DOM + screenshot + button inventory. Share these to fix selectors."""
-        stamp = dt.datetime.now().strftime("%Y%m%d_%H%M%S")
-        out = ensure_dir(PROJECT_ROOT / "logs" / "gemini")
-        html_path = out / f"{tag}_{stamp}.html"
-        shot_path = out / f"{tag}_{stamp}.png"
-        json_path = out / f"{tag}_{stamp}.json"
+        return dump_page_diagnostics(self.page, tag, out_dir=PROJECT_ROOT / "logs" / "gemini")
 
-        report: dict[str, Any] = {"tag": tag, "at": dt.datetime.now().isoformat(timespec="seconds")}
-        try:
-            report["url"] = self.page.url
-            report["title"] = self.page.title()
-            report["file_inputs"] = self.page.evaluate(JS_FILE_INPUTS)
-            report["buttons"] = self.page.evaluate(JS_BUTTONS)
-            report["upload_previews"] = self.page.evaluate(JS_UPLOAD_PREVIEWS)
-            report["image_count"] = self.page.evaluate(JS_COUNT_IMAGES)
-            report["frames"] = [f.url for f in self._frames()]
-        except Exception as exc:  # noqa: BLE001
-            report["error"] = str(exc)
-        try:
-            html_path.write_text(self.page.content(), encoding="utf-8")
-            self.page.screenshot(path=str(shot_path), full_page=True)
-        except Exception as exc:  # noqa: BLE001
-            log.debug("diagnostics capture issue: %s", exc)
+    # ------------------------------------------------------------- step capture
+    # Action-by-action capture for a (new) Gemini page such as /images:
+    # each step dumps a tagged report while the relevant menu/panel is open,
+    # so every action's selector can be read off real DOM data.
+    CAPTURE_STEPS = [
+        ("step_1_home", "home/composer: new-chat, consent, attach (+), prompt box, model picker button"),
+        ("step_2_attach", "attach menu open: 'Upload files' item + file input"),
+        ("step_3_model_picker", "model picker open: 'Create image' option"),
+        ("step_4_aspect", "aspect-ratio menu open: the ratio options (3:4 ...)"),
+        ("step_5_image", "one generated image on screen, hovered: image element, download button, lightbox close"),
+    ]
 
-        report["json"] = str(json_path)
-        report["html"] = str(html_path)
-        report["screenshot"] = str(shot_path)
-        write_json(json_path, report)
-        log.info("diagnostics saved -> %s", json_path)
-        return report
+    def capture_steps(self, interactive: bool = False) -> list[dict[str, Any]]:
+        """Dump one tagged report per UI action. With interactive=True (headed) the
+        browser pauses between steps: click the element named in the step so its
+        menu is open when the dump is taken. Headless mode clicks defaults best-effort.
+        """
+        reports: list[dict[str, Any]] = []
+
+        def _pause(msg: str) -> None:
+            if interactive:
+                log.info("%s - then press Enter here", msg)
+                try:
+                    input("  Enter... ")
+                except EOFError:
+                    pass
+
+        def _esc() -> None:
+            try:
+                self.page.keyboard.press("Escape")
+                self.page.wait_for_timeout(500)
+            except Exception:  # noqa: BLE001
+                pass
+
+        reports.append(self.dump_diagnostics("step_1_home"))
+        _pause("STEP 2: click the attach/+ button so its menu is open")
+        self._click_first(self._attach_candidates())
+        self.page.wait_for_timeout(1500)
+        reports.append(self.dump_diagnostics("step_2_attach"))
+        _esc()
+
+        _pause("STEP 3: open the model picker so 'Create image' is visible")
+        openers = self.cfg.get("gemini.selectors.model_picker") or [
+            'button[aria-label*="model" i]', '[data-test-id*="model-selector" i]',
+            'button:has-text("Flash")', 'button:has-text("Pro")',
+        ]
+        self._click_first(openers)
+        self.page.wait_for_timeout(1200)
+        reports.append(self.dump_diagnostics("step_3_model_picker"))
+        _esc()
+
+        _pause("STEP 4: click the 'Aspect ratio' row so the ratio options are visible")
+        try:
+            self.page.locator('div.row-container:has-text("Aspect ratio")').first.click(timeout=3000)
+            self.page.wait_for_timeout(1000)
+        except Exception:  # noqa: BLE001
+            log.debug("aspect row click failed in capture")
+        reports.append(self.dump_diagnostics("step_4_aspect"))
+        _esc()
+
+        _pause("STEP 5: generate ONE image (send any prompt in the browser), wait for it, "
+               "hover the image so the Download button shows")
+        reports.append(self.dump_diagnostics("step_5_image"))
+        return reports
 
     # ------------------------------------------------------------- one slot
     def generate_image(
@@ -1087,6 +1363,36 @@ class GeminiWeb:
 
         if saved is None:
             raise GeminiError(f"no image could be captured for {dest.name}")
+
+        # keep the slot's canonical file name/extension (downloads can land as .jpg)
+        saved = normalize_image_ext(saved, dest)
+
+        # the slot file is finalised - stop routing downloads to its path, so a stray
+        # download between slots cannot overwrite it (it parks in output/_downloads/)
+        self._pending_dest = None
+
+        # ---- accuracy gate: the image must actually satisfy the slot spec before
+        # the slot counts as done. A rejection raises -> the pipeline's normal
+        # retry path (fresh chat + re-upload) kicks in.
+        check = self.cfg.get("gemini.image_check", {}) or {}
+        if check.get("enabled", True):
+            res = verify_generated_image(
+                saved,
+                targets=aspect_targets(self.cfg),
+                min_long_side=int(check.get("min_long_side_px", 1000)),
+                aspect_tol=float(check.get("aspect_tolerance", 0.06)),
+                ref_hashes=self._ref_hashes if check.get("reject_reference_echo", True) else None,
+                seen_hashes=self._seen_hashes if check.get("reject_duplicate_panel", True) else None,
+            )
+            if not res["ok"]:
+                log.warning("image check REJECTED %s: %s (%dx%d)", saved.name, res["reason"],
+                            res["w"], res["h"])
+                Path(saved).unlink(missing_ok=True)
+                raise GeminiError(f"generated image rejected by checks: {res['reason']} "
+                                  f"({res['w']}x{res['h']})")
+            self._seen_hashes.add(res["sha256"])
+            log.info("image check ok: %s %dx%d (%.0f KB)", saved.name, res["w"], res["h"],
+                     Path(saved).stat().st_size / 1024)
 
         human_delay(self.cfg.get("gemini.between_slots_sec", [6, 12]), "between slots")
         return {"ok": True, "path": str(saved)}

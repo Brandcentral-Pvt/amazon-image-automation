@@ -51,7 +51,10 @@ output:
 # ---------------------------------------------------------------- gemini web
 gemini:
   enabled: true
-  url: "https://gemini.google.com/app"
+  # /images = dedicated image-generation surface (composer starts in image mode).
+  # When the UI changes, capture fresh selectors with:
+  #   python run.py probe --url https://gemini.google.com/images --steps --interactive
+  url: "https://gemini.google.com/images"
   # ---- use your OWN signed-in Chrome profile (no separate sign-in screen, ever) ----
   use_own_chrome_profile: true
   chrome_profile_name: "Chirag"      # name shown in Chrome's profile picker
@@ -89,18 +92,113 @@ gemini:
   upload_wait_sec: 8
   between_slots_sec: [15, 30]  # generous pacing - Google /sorry-blocks fast bursts
   block_wait_sec: 120          # cool-down when Google shows a /sorry traffic page
-  # Gemini UI selectors (edit here when Google ships UI changes - no code change needed)
+  # page-body markers that also mean "rate-limited" (Google sometimes blocks inline)
+  block_markers:
+    - "/sorry/"
+    - "unusual traffic"
+    - "detected unusual traffic"
+  # accuracy gate applied to EVERY captured image before a slot counts as done:
+  # decodable, portrait, aspect within tolerance of 3:4 (UI) or 1600x1920 (panel),
+  # longest side >= min_long_side_px (Amazon needs >= 1000 px), not an unchanged
+  # upload, not a duplicate of an earlier panel. Rejections retry via slot_retries.
+  image_check:
+    enabled: true
+    min_long_side_px: 1000
+    aspect_tolerance: 0.06
+    reject_reference_echo: true
+    reject_duplicate_panel: true
+  # Gemini UI selectors (edit here when Google ships UI changes - no code change needed.
+  # To capture selectors for the CURRENT page (e.g. /images), run:
+  #   python run.py probe --url https://gemini.google.com/images --steps --interactive --headed
+  # then review logs/gemini/selectors.suggested.yaml and the step_*.json/html dumps,
+  # and paste the winners below.)
   selectors:
+    new_chat_button: 'button[aria-label*="New chat" i], button:has-text("New chat")'
+    download_button: 'button[aria-label*="Download" i], [data-test-id*="download" i]'
     prompt_box: 'div[contenteditable="true"][role="textbox"], rich-textarea div[contenteditable="true"]'
     file_input: 'input[type="file"]'
     send_button: 'button[aria-label*="Send"], button.send-button'
-    stop_button: 'button[aria-label*="Stop"], button[aria-label*="stop response"]'
-    response_block: 'model-response, .model-response-text, message-content'
+    stop_button: 'button[aria-label*="Stop" i], button[aria-label*="stop response" i]'
+    response_block: 'model-response, .model-response-text, message-content'   # informational; the JS counters hardcode these
     generated_image: 'model-response img, message-content img'
+    # ---- exact XPath selectors captured 2026-11-03 (very brittle - element IDs change
+    # ---- with every Gemini deploy; if image mode stops engaging, re-probe and update).
+    # ---- When create_image_option is missing/broken the code automatically falls back
+    # ---- to clicking the div.gem-menu-item-label whose text matches image_model_hints.
+    create_image_option: "//*[@id='cdk-overlay-0']/mat-card/mat-action-list/div[2]/toolbox-drawer/div/div/toolbox-drawer-item[1]/button/span/span"
+    aspect_ratio_button: "//*[@id='xap-skip-link-target']/div/chat-window/div[2]/input-container/div/input-area-v2/div/fieldset/div/div[4]/input-companion/div/input-companion-chip/gem-button/button/span[3]"
+    aspect_ratio_3_4: "//*[@id='mat-menu-panel-11']/div/input-companion-item[3]/div"
+    # lightbox that sometimes opens over a finished generation (Escape is the last resort)
+    lightbox_close: 'button[aria-label*="Close" i]'
+    lightbox_backdrop: ''
+    # optional overrides - the code has built-in defaults for these three:
+    # attach_buttons: ['button[aria-label*="Add files" i]', ...]
+    # upload_menu_items: ['text="Upload files"', ...]
+    # model_picker: ['button[aria-label*="model" i]', ...]
     consent_buttons:
       - 'button:has-text("I agree")'
       - 'button:has-text("Accept all")'
       - 'button:has-text("Got it")'
+
+# ---------------------------------------------------------------- image backend
+# Which web UI generates the 8 panels. The pipeline is backend-agnostic:
+#   gemini_web (default) -> gemini.url below (https://gemini.google.com/images)
+#   arena_web            -> https://arena.ai/image (Arena Image Arena, battle mode)
+image:
+  backend: "gemini_web"        # gemini_web | arena_web
+  # optional top-level override of the generated-image accuracy gate
+  # (default: <backend>.image_check - see gemini.image_check / arena.image_check)
+  # image_check: {enabled: true, min_long_side_px: 1000, aspect_tolerance: 0.06, ...}
+
+# ---------------------------------------------------------------- Arena.ai Image Arena
+# Used when image.backend: arena_web. Battle mode returns TWO images per prompt -
+# arena.pick chooses which to keep. fit_panel center-crops + resizes each output
+# to the studio panel (studio.panel_width x studio.panel_height) so the accuracy
+# gate and the Amazon layout stay uniform.
+# Capture real selectors from the live page with:
+#   python run.py probe --backend arena --url https://arena.ai/image --steps --interactive --headed
+#   -> logs/arena/selectors.suggested.yaml + step_*.json/html dumps
+arena:
+  url: "https://arena.ai/image"
+  pick: "largest"              # largest | left | right
+  fit_panel: true
+  max_reference_images: 4
+  attach_references_every_slot: true
+  on_upload_failure: "fail"    # fail | continue without references
+  generation_timeout_sec: 240
+  upload_wait_sec: 6
+  upload_timeout_sec: 25
+  between_slots_sec: [10, 20]
+  block_wait_sec: 120          # cool-down on Cloudflare/challenge pages
+  block_markers:
+    - "verify you are human"
+    - "challenge-platform"
+    - "unusual traffic"
+    - "rate limit"
+  selectors:
+    prompt_box: 'textarea, [contenteditable="true"]'
+    send_button: 'button[type="submit"], button:has-text("Generate")'
+    stop_button: ''
+    file_input: 'input[type="file"]'
+    generated_image: 'img'
+    download_button: 'button[aria-label*="Download" i], [data-test-id*="download" i]'
+    new_chat_button: ''
+    attach_buttons:
+      - 'button[aria-label*="Add" i]'
+      - 'button[aria-label*="Upload" i]'
+    upload_menu_items:
+      - 'text="Upload files"'
+      - 'text="Upload image"'
+    consent_buttons:
+      - 'button:has-text("Accept")'
+      - 'button:has-text("Accept all")'
+      - 'button:has-text("Got it")'
+  image_check:                 # same accuracy gate as gemini.image_check
+    enabled: true
+    min_long_side_px: 1000
+    aspect_tolerance: 0.06
+    reject_reference_echo: true
+    reject_duplicate_panel: true
 
 # ---------------------------------------------------------------- NVIDIA NIM
 # Dynamic AIIE casting: detects the product type and picks suitable models for
