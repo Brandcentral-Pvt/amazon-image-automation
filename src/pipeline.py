@@ -122,12 +122,18 @@ class Pipeline:
                 log.info("%s: [dry-run] %d prompts prepared", asin, len(bundle))
             return {"ok": len(prepared), "failed": 0, "dry_run": True}
 
-        from .gemini_web import GeminiWeb
+        provider = str(self.cfg.get("generation.provider", "gemini")).strip().lower()
+        if provider == "chatgpt":
+            from .chatgpt_web import ChatGPTWeb as Generator
+        elif provider == "gemini":
+            from .gemini_web import GeminiWeb as Generator
+        else:
+            raise ValueError(f"unsupported image generation provider: {provider}")
 
         stats = {"ok": 0, "failed": 0, "slots_ok": 0, "slots_failed": 0}
         headless = self.cfg.get("browser.headless", True)
 
-        with GeminiWeb(self.cfg, headless=headless) as gem:
+        with Generator(self.cfg, headless=headless) as gem:
             for asin, (product, bundle, refs, master) in prepared.items():
                 stats.update(self._generate_one(gem, asin, product, bundle, refs, master))
                 human_delay([5, 10], "between asins")
