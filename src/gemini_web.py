@@ -609,44 +609,30 @@ class GeminiWeb:
         # Fallback to old method
         return self._set_aspect_ratio_ui()
 
-    # ------------------------------------------------------------- batch session
-    def begin_batch(self, master: str = "", reference_images: list = None) -> None:
-        """Open ONE chat for the whole ASIN batch and set up image generation mode.
-
-        STRICT SEQUENCE (enforced):
-        1. Open new chat
-        2. Upload base/reference images FIRST
-        3. Open model picker and select "Create image"
-        4. Set aspect ratio to 3:4
-        (No master prompt - slot prompts carry all instructions)
+    # ------------------------------------------------------------- simple 6-step workflow
+    def begin_batch(self, reference_images: list = None) -> None:
+        """Simple 6-step workflow:
+        1. Open gemini web page
+        2. Upload ref images
+        3. Select Create Images and aspect ratio
+        4. Click generation button
+        5. Download Generation
+        6. Next Generation
         """
-        self._active_master = (master or "").strip()   # remembered for retry restarts
         self.new_chat()
-        self._pending_dest = None       # the master seed is not a slot download
-        self._handled_download = None
-
-        # STEP 1: Upload base/reference images FIRST
+        
+        # Step 1 & 2: Open page (done in new_chat) + upload ref images
         if reference_images:
-            log.info("uploading %d base/reference images", len(reference_images))
+            log.info("uploading %d reference images", len(reference_images))
             self.upload_images(reference_images)
-            self._refs_attached = True
         else:
-            log.warning("no reference images provided to begin_batch")
+            log.warning("no reference images provided")
 
-        # STEP 2: Open model picker and select "Create image" 
+        # Step 3: Select Create Images and aspect ratio
         if self.cfg.get("gemini.ensure_image_model", False):
-            log.info("selecting 'Create image' mode via model picker")
+            log.info("selecting 'Create image' mode + aspect ratio")
             if not self._pick_image_model():
                 log.warning("failed to select 'Create image' mode - proceeding anyway")
-
-        # STEP 3: Set aspect ratio to 3:4 (done inside _pick_image_model, but ensure)
-        ratio = str(self.cfg.get("gemini.aspect_ratio", "") or "").strip()
-        if ratio:
-            log.info("ensuring aspect ratio is %s", ratio)
-            self._set_aspect_ratio_ui()
-
-        # NO master prompt - slot prompts carry all instructions
-        log.info("batch chat ready for image generation (strict sequence complete)")
 
     def restart_batch(self, reference_images: list = None) -> None:
         """Recovery path: open a FRESH chat and re-setup image generation mode.
@@ -659,11 +645,9 @@ class GeminiWeb:
         1. New chat
         2. Upload reference images
         3. Open model picker and select "Create image"
-        4. Set aspect ratio 3:4
-        (No master prompt)
         """
-        log.info("restarting batch chat (fresh session + re-setup image mode)")
-        self.begin_batch(self._active_master, reference_images=reference_images)
+        log.info("restarting: fresh session + 6-step setup")
+        self.begin_batch(reference_images=reference_images)
 
     def _wait_for_reply(self, text_ok: bool = False) -> bool:
         """Wait until Gemini finished replying to the last submitted message.
@@ -1017,16 +1001,23 @@ class GeminiWeb:
         log.info("diagnostics saved -> %s", json_path)
         return report
 
-    # ------------------------------------------------------------- one slot
+    # ------------------------------------------------------------- one slot (simple 6-step)
     def generate_image(
         self,
         prompt: str,
         reference_images: list[Path],
         dest: Path,
-        strategy: str = "auto",
         dry_run: bool = False,
         prompt_record: str | None = None,
     ) -> dict[str, Any]:
+        """Simple 6-step workflow:
+        1. Open gemini web page (done in begin_batch)
+        2. Upload ref images (done in begin_batch)
+        3. Select Create Images + aspect ratio (done in begin_batch)
+        4. Click generation button (send prompt)
+        5. Download Generation
+        6. Next Generation (caller loops)
+        """
         ensure_dir(dest.parent)
 
         if dry_run:
@@ -1035,55 +1026,33 @@ class GeminiWeb:
             log.info("[dry-run] prompt saved -> %s", p.name)
             return {"ok": True, "path": str(p), "dry_run": True}
 
-        if self.cfg.get("gemini.new_chat_per_slot", False):
-            self.new_chat()
-        self._dismiss_overlays()
-
-        # this slot's "related place": output/<ASIN>/generated/<slot file>.png
-        self._pending_dest = dest
+        # Clear any cached download from previous slot
         self._handled_download = None
+        self._pending_dest = dest
 
-        # STRICT RULE: before EVERY image generation the composer must be on the
-        # "Create image" mode - a continuous chat can silently fall back to the
-        # text model between replies, which produces text instead of a panel.
-        if self.cfg.get("gemini.ensure_image_model", False) and self._should_ensure_mode():
-            self.ensure_image_model()
-
-        # attach the reference photos on EVERY slot by default (configurable):
-        # a fresh upload per panel keeps the product anchored when Gemini's
-        # attention drifts in long batch chats
-        every_slot = bool(self.cfg.get("gemini.attach_references_every_slot", True))
-        fresh_chat = self.cfg.get("gemini.new_chat_per_slot", False)
-        need_refs = bool(reference_images) and (fresh_chat or every_slot
-                                                or not self._refs_attached)
-        if need_refs:
-            try:
-                self.upload_images(reference_images)
-                self._refs_attached = True
-            except GeminiError as exc:
-                self._refs_attached = False
-                if (self.cfg.get("gemini.on_upload_failure", "fail") or "fail").lower() == "continue":
-                    log.warning("%s -> continuing TEXT-ONLY (product accuracy will drop)", exc)
-                else:
-                    raise
-
+        # Step 4: Click generation button (send prompt)
         self.send_prompt(prompt)
+
+        # Step 5: Wait for generation + Download
         self.wait_for_generation()
 
+        # Step 5: Download the generated image
         saved: Path | None = None
-        if strategy in ("auto", "dom_fetch"):
-            imgs = self.collect_images()
-            if imgs:
-                best = max(imgs, key=lambda i: len(i["bytes"]))
-                saved = dest
-                saved.write_bytes(best["bytes"])
-                log.info("saved %s (%.0f KB, %sx%s)", dest.name, len(best["bytes"]) / 1024,
-                         best.get("w"), best.get("h"))
-        if saved is None and self._handled_download is not None and self._handled_download.exists():
-            saved = self._handled_download
-            log.info("using captured download for its related place: %s", saved.name)
-        if saved is None and strategy in ("auto", "button"):
+        imgs = self.collect_images()
+        if imgs:
+            best = max(imgs, key=lambda i: len(i["bytes"]))
+            dest.write_bytes(best["bytes"])
+            log.info("saved %s (%.0f KB, %sx%s)", dest.name, len(best["bytes"]) / 1024,
+                     best.get("w"), best.get("h"))
+            saved = dest
+
+        if saved is None:
             saved = self.download_via_button(dest)
+
+        if saved is None:
+            raise GeminiError(f"no image could be captured for {dest.name}")
+
+        return {"ok": True, "path": str(saved)}
 
         if saved is None:
             raise GeminiError(f"no image could be captured for {dest.name}")

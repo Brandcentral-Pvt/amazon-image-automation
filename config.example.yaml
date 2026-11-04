@@ -156,6 +156,57 @@ watermark:
   threads: 0                    # 0 = onnxruntime default thread count
   timeout_sec: 180              # per image
 
+# ---------------------------------------------------------------- ChatGPT
+# Custom GPT image generation (GPT-4o + DALL-E 3)
+# Uses persistent Chrome profile for login session persistence
+chatgpt:
+  enabled: true
+  url: "https://chatgpt.com/g/g-p-6aeafd8cf6148191b9034dbaaf247ba1"
+  # Chrome profile for persistent login
+  use_own_chrome_profile: true
+  chrome_profile_name: "Chirag"
+  chrome_channel: "chrome"
+  user_data_dir: ".browser-profile-chatgpt"
+  chrome_user_data_dir: ""
+  recopy_chrome_profile: false
+  max_reference_images: 10
+  upload_wait_sec: 10
+  upload_timeout_sec: 30
+  generation_timeout_sec: 300
+  block_wait_sec: 120
+  # CSS selectors (update when ChatGPT UI changes)
+  selectors:
+    prompt_box: 'div[contenteditable="true"][data-testid="prompt-textarea"]'
+    send_button: 'button[data-testid="send-button"]'
+    attach_buttons:
+      - 'button[aria-label*="Attach" i]'
+      - 'button[aria-label*="Upload" i]'
+      - '[data-test-id*="attachment" i]'
+    upload_menu_items:
+      - 'text="Upload from computer"'
+      - 'text="Upload file"'
+      - '[role="menuitem"]:has-text("Upload")'
+    file_input: 'input[type="file"]'
+    lightbox_close: 'button[aria-label*="Close" i]'
+    consent_buttons:
+      - 'button:has-text("Accept")'
+      - 'button:has-text("Allow")'
+    lightbox_backdrop: '.modal-backdrop, [data-testid="modal-backdrop"]'
+
+# --------------------------------------------------------- watermark cleanup
+# Every generated image passes through the Veo/Gemini sparkle remover engine
+# BEFORE it counts as final: cleaned image replaces the file in place, the
+# pre-clean pixels go to generated/_with_watermark/ for provenance.
+# engine_dir points at the local remover app (wm_core.py lives there).
+watermark:
+  enabled: true
+  engine_dir: "G:\\veo-watermark-remover\\veo-watermark-remover\\local_app"
+  python: ""                    # blank = use the remover's own venv python
+  model: ""                     # blank = use <engine_dir>/models/lama_fp32.onnx
+  device: "cpu"                 # auto | cpu | cuda
+  threads: 0                    # 0 = onnxruntime default thread count
+  timeout_sec: 180              # per image
+
 # ---------------------------------------------------------------- tracking sheet
 sheet:
   enabled: true

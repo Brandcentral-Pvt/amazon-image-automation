@@ -159,11 +159,9 @@ class Pipeline:
             return {"ok": 1 if ok else 0, "failed": 0,
                     "slots_ok": ok, "slots_failed": 0}
 
-        # ONE continuous chat for this ASIN batch: the AIIE master message seeds
-        # it once (product + model casting locks), then every slot lands in the
-        # same chat so all 8 panels stay visually consistent.
-        # STRICT SEQUENCE: upload refs -> select Create image -> set 3:4 -> master
-        gem.begin_batch(master, reference_images=refs)
+        # ONE continuous chat for this ASIN batch
+        # STRICT SEQUENCE: upload refs -> select Create image -> set 3:4
+        gem.begin_batch(reference_images=refs)
 
         retries = int(self.cfg.get("gemini.slot_retries", 2))
         retry_delay = self.cfg.get("gemini.slot_retry_delay_sec", [10, 20])

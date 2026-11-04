@@ -73,6 +73,13 @@ def cmd_login(args) -> int:
     return 0
 
 
+def cmd_chatgpt_login(args) -> int:
+    """One-time ChatGPT login - saves session to Chrome profile."""
+    from src.chatgpt_web import chatgpt_login
+    cfg = load_config(args.config)
+    return chatgpt_login(cfg)
+
+
 def cmd_scrape(args) -> int:
     from src.pipeline import Pipeline
 
@@ -157,7 +164,7 @@ def _common(sp: argparse.ArgumentParser) -> None:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(description="Amazon ASIN -> 8-image compliant bundle (Gemini web)")
+    p = argparse.ArgumentParser(description="Amazon ASIN -> 8-image compliant bundle (Gemini/ChatGPT web)")
     _common(p)
     p.set_defaults(config=None, dry_run=False, headed=False, force=False, limit=0,
                    notes="", asins=None, asin=None)
@@ -167,6 +174,9 @@ def build_parser() -> argparse.ArgumentParser:
     _common(sp)
     sp.add_argument("--gemini", action="store_true",
                     help="log into the GEMINI own-Chrome profile copy instead of the shared one")
+
+    sp = sub.add_parser("chatgpt-login", help="one-time ChatGPT login into the persistent profile")
+    _common(sp)
 
     for name, helptext in (("scrape", "crawl products + download base images"),
                            ("generate", "build prompts + generate 8 images"),
@@ -189,6 +199,8 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if args.cmd == "login":
             return cmd_login(args)
+        if args.cmd == "chatgpt-login":
+            return cmd_chatgpt_login(args)
         if args.cmd == "scrape":
             return cmd_scrape(args)
         if args.cmd == "generate":
