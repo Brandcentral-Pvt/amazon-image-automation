@@ -18,8 +18,13 @@ import base64
 import datetime as dt
 import json
 import time
+import io
+import hashlib
+import os
 from pathlib import Path
 from typing import Any
+
+from PIL import Image, UnidentifiedImageError
 
 from .config import Config
 from .utils import PROJECT_ROOT, ensure_dir, human_delay, log, write_json
@@ -141,6 +146,8 @@ class ChatGPTWeb:
         # one-chat-per-batch state
         self._baseline_images = 0
         self._baseline_blocks = 0
+        self._baseline_users = 0
+        self._response_block_index = -1
         self._refs_attached = False
         # download routing
         self._pending_dest: Path | None = None
@@ -328,94 +335,88 @@ class ChatGPTWeb:
             return -1
 
     def upload_images(self, paths: list[Path]) -> int:
+        requested = [Path(p) for p in paths]
         max_refs = int(self.cfg.get("chatgpt.max_reference_images", 10))
-        paths = [Path(p) for p in paths if Path(p).exists()][:max_refs]
-        if not paths:
+        if not requested:
             return 0
-
-        self._pending_files = paths
+        if len(requested) > max_refs:
+            raise ChatGPTError(f"{len(requested)} reference files exceed the configured limit {max_refs}")
+        if any(not p.is_file() for p in requested):
+            raise ChatGPTError("one or more reference images are missing")
+        self._pending_files = requested
         self._chooser_fired = False
         self._files_set = False
-        upload_wait = int(self.cfg.get("chatgpt.upload_wait_sec", 10))
         baseline = self._preview_count()
+        if baseline < 0:
+            raise ChatGPTError("could not inspect upload attachments")
 
-        # Strategy 1: direct input
-        fi = self.find_file_input()
-        if fi is not None:
-            try:
-                fi.set_input_files([str(p) for p in paths])
-                self.page.wait_for_timeout(upload_wait * 1000)
-                if self._preview_count() > baseline:
-                    log.info("attached %d image(s) via <input type=file>", len(paths))
-                    return len(paths)
-                log.debug("input accepted files but no upload preview appeared - falling back")
-            except Exception as exc:
-                log.debug("direct input failed (%s) - falling back to chooser", exc)
+        try:
+            fi = self.find_file_input()
+            if fi is not None:
+                try:
+                    fi.set_input_files([str(p) for p in requested])
+                except Exception as exc:
+                    log.debug("direct file input failed: %s", exc)
+            else:
+                clicked = self._click_first(self._attach_candidates())
+                if not clicked:
+                    raise ChatGPTError("no attachment control available")
+                if not self._chooser_fired:
+                    self._click_first(self._menu_item_candidates())
 
-        # Strategy 2: click attach button
-        clicked = self._click_first(self._attach_candidates())
-        if clicked and not self._chooser_fired:
-            self.page.wait_for_timeout(1200)
-            if not self._chooser_fired:
-                self._click_first(self._menu_item_candidates())
-
-        # Strategy 3: wait for chooser/preview
-        deadline = time.time() + int(self.cfg.get("chatgpt.upload_timeout_sec", 30))
-        attached = False
-        while time.time() < deadline:
-            if self._files_set or self._preview_count() > baseline:
-                attached = True
-                break
-            self.page.wait_for_timeout(700)
-
-        if attached:
-            self.page.wait_for_timeout(upload_wait * 1000)
-            log.info("attached %d reference image(s)", len(paths))
-            return len(paths)
-
-        diag = self.dump_diagnostics("upload_failed")
-        raise ChatGPTError(
-            "could not attach images to ChatGPT. "
-            f"Diagnostics: {diag.get('json')} | {diag.get('screenshot')}. "
-            "Run `python run.py chatgpt-probe --interactive`."
-        )
+            deadline = time.monotonic() + int(self.cfg.get("chatgpt.upload_timeout_sec", 30))
+            while time.monotonic() < deadline:
+                current = self._preview_count()
+                if current >= baseline + len(requested):
+                    self._refs_attached = True
+                    return len(requested)
+                self.page.wait_for_timeout(500)
+            raise ChatGPTError(
+                f"attachment verification timed out: expected {len(requested)} new previews, "
+                f"observed {max(0, self._preview_count() - baseline)}"
+            )
+        finally:
+            self._pending_files = []
 
     # ------------------------------------------------------------- send prompt
     def send_prompt(self, prompt: str) -> None:
-        try:
-            self._baseline_images = int(self.page.evaluate(JS_COUNT_IMAGES))
-            self._baseline_blocks = int(self.page.evaluate(JS_COUNT_BLOCKS))
-        except Exception:
-            self._baseline_images = self._baseline_blocks = 0
-
+        if not prompt.strip():
+            raise ChatGPTError("empty generation prompt")
+        self._baseline_blocks = int(self.page.evaluate(JS_COUNT_BLOCKS))
+        self._baseline_users = int(self.page.locator('[data-message-author-role="user"]').count())
+        self._response_block_index = self._baseline_blocks
         box = self.page.locator(self._sel("prompt_box")).first
         box.click(timeout=15000)
-        self.page.wait_for_timeout(400)
-        self.page.keyboard.insert_text(prompt)
-        self.page.wait_for_timeout(600)
-
-        sent = False
-        try:
-            btn = self.page.locator(self._sel("send_button", 'button[data-testid="send-button"]')).first
-            if btn.is_visible(timeout=1500):
-                btn.click(timeout=4000)
-                sent = True
-        except Exception:
-            pass
-        if not sent:
-            self.page.keyboard.press("Enter")
-        log.debug("prompt sent (%d chars)", len(prompt))
+        box.fill(prompt, timeout=15000)
+        actual = (box.inner_text(timeout=5000) or "").strip()
+        if actual != prompt.strip():
+            raise ChatGPTError("prompt composer contents did not match requested prompt")
+        btn = self.page.locator(self._sel("send_button", 'button[data-testid="send-button"]')).first
+        if not btn.is_visible(timeout=5000) or not btn.is_enabled(timeout=5000):
+            raise ChatGPTError("send button is not ready")
+        btn.click(timeout=5000)
+        deadline = time.monotonic() + 15
+        while time.monotonic() < deadline:
+            if self.page.locator('[data-message-author-role="user"]').count() > self._baseline_users:
+                log.info("ChatGPT accepted prompt (%d chars)", len(prompt))
+                return
+            self.page.wait_for_timeout(300)
+        raise ChatGPTError("prompt submission was not confirmed; do not retry blindly")
 
     def _new_reply_ready(self) -> bool:
         try:
-            imgs = int(self.page.evaluate(JS_COUNT_IMAGES))
-            blocks = int(self.page.evaluate(JS_COUNT_BLOCKS))
-            last_imgs = int(self.page.evaluate(JS_COUNT_LAST))
+            blocks = self.page.locator('[data-message-author-role="assistant"]')
+            if blocks.count() <= self._baseline_blocks:
+                return False
+            for index in range(self._baseline_blocks, blocks.count()):
+                images = blocks.nth(index).locator("img")
+                for j in range(images.count()):
+                    image = images.nth(j)
+                    if image.evaluate("(el) => el.complete && el.naturalWidth >= 200 && el.naturalHeight >= 200"):
+                        return True
+            return False
         except Exception:
             return False
-        if imgs > self._baseline_images:
-            return True
-        return blocks > self._baseline_blocks and last_imgs > 0
 
     # ------------------------------------------------------------- wait for generation
     def wait_for_generation(self) -> None:
@@ -470,53 +471,76 @@ class ChatGPTWeb:
         return False
 
     # ------------------------------------------------------------- download
+    @staticmethod
+    def _validated_image(raw: bytes, expected: Path) -> bytes:
+        try:
+            with Image.open(io.BytesIO(raw)) as img:
+                img.verify()
+            with Image.open(io.BytesIO(raw)) as img:
+                width, height = img.size
+                if width < 600 or height < 600:
+                    raise ChatGPTError(f"generated image is too small: {width}x{height}")
+                if expected.suffix.lower() == ".png":
+                    converted = io.BytesIO()
+                    img.convert("RGB").save(converted, format="PNG")
+                    return converted.getvalue()
+                if expected.suffix.lower() in (".jpg", ".jpeg"):
+                    converted = io.BytesIO()
+                    img.convert("RGB").save(converted, format="JPEG", quality=95)
+                    return converted.getvalue()
+                raise ChatGPTError(f"unsupported output extension: {expected.suffix}")
+        except (UnidentifiedImageError, OSError, ValueError) as exc:
+            raise ChatGPTError("downloaded bytes are not a valid image") from exc
+
     def collect_images(self) -> list[dict[str, Any]]:
-        items = self.page.evaluate(JS_COLLECT_LAST) or []
+        if self.page.locator('[data-message-author-role="assistant"]').count() <= self._baseline_blocks:
+            return []
+        # Only inspect responses created after this prompt, never earlier history.
         out: list[dict[str, Any]] = []
-        for item in items:
-            raw: bytes | None = None
-            if item.get("b64"):
+        blocks = self.page.locator('[data-message-author-role="assistant"]')
+        for index in range(self._baseline_blocks, blocks.count()):
+            block = blocks.nth(index)
+            for img in block.locator("img").all():
                 try:
-                    raw = base64.b64decode(item["b64"])
-                except Exception:
-                    raw = None
-            if raw is None and str(item.get("src", "")).startswith("http"):
-                try:
-                    resp = self.page.request.get(item["src"], timeout=30000)
-                    if resp.ok:
-                        raw = resp.body()
-                except Exception:
-                    raw = None
-            if raw and len(raw) > 20000:
-                out.append({"bytes": raw, "w": item.get("w"), "h": item.get("h")})
+                    info = img.evaluate("(el) => ({src: el.currentSrc || el.src, w: el.naturalWidth, h: el.naturalHeight})")
+                    src = info.get("src", "")
+                    if info.get("w", 0) < 200 or info.get("h", 0) < 200 or not src:
+                        continue
+                    if src.startswith("blob:") or src.startswith("data:"):
+                        b64 = img.evaluate("""async el => {
+                            const r = await fetch(el.currentSrc || el.src);
+                            const bytes = new Uint8Array(await r.arrayBuffer());
+                            let binary = '';
+                            for (let i=0; i<bytes.length; i+=8192) {
+                              binary += String.fromCharCode(...bytes.slice(i,i+8192));
+                            }
+                            return btoa(binary);
+                        }""")
+                        raw = base64.b64decode(b64)
+                    elif src.startswith("https://"):
+                        response = self.page.request.get(src, timeout=30000)
+                        raw = response.body() if response.ok else b""
+                    else:
+                        continue
+                    if len(raw) > 20000:
+                        out.append({"bytes": raw, "w": info["w"], "h": info["h"]})
+                except Exception as exc:
+                    log.debug("image collection candidate failed: %s", exc)
         return out
 
     def download_via_button(self, dest: Path) -> Path | None:
-        if self._handled_download is not None and self._handled_download.exists():
-            return self._handled_download
-
-        try:
-            items = self.page.evaluate(JS_COLLECT_LAST) or []
-            if not items:
-                return None
-            best_item = max(items, key=lambda i: (i.get("w", 0) * i.get("h", 0)))
-            src = best_item.get("src", "")
-            if not src:
-                return None
-
-            if src.startswith("blob:") or src.startswith("http"):
-                try:
-                    resp = self.page.request.get(best_item["src"], timeout=30000)
-                    if resp.ok:
-                        ensure_dir(dest.parent)
-                        dest.write_bytes(resp.body())
-                        log.info("downloaded generated image via fetch: %s", dest.name)
-                        return dest
-                except Exception:
-                    pass
-        except Exception:
-            pass
-        return None
+        # A browser download event is only accepted when it is routed to this slot.
+        candidate = self._handled_download
+        if candidate is None or not candidate.exists():
+            return None
+        raw = candidate.read_bytes()
+        converted = self._validated_image(raw, dest)
+        tmp = dest.with_name(dest.name + ".tmp")
+        tmp.write_bytes(converted)
+        os.replace(tmp, dest)
+        if candidate != dest:
+            candidate.unlink(missing_ok=True)
+        return dest
 
     # ------------------------------------------------------------- diagnostics
     def dump_diagnostics(self, tag: str = "probe") -> dict[str, Any]:
@@ -559,37 +583,33 @@ class ChatGPTWeb:
         prompt_record: str | None = None,
     ) -> dict[str, Any]:
         ensure_dir(dest.parent)
-
         if dry_run:
-            p = dest.with_suffix(".txt")
-            p.write_text(prompt_record or prompt, encoding="utf-8")
-            log.info("[dry-run] prompt saved -> %s", p.name)
-            return {"ok": True, "path": str(p), "dry_run": True}
+            record = dest.with_suffix(".txt")
+            record.write_text(prompt_record or prompt, encoding="utf-8")
+            return {"ok": True, "path": str(record), "dry_run": True}
 
         self._handled_download = None
         self._pending_dest = dest
-
-        # Step 4: Send prompt
-        self.send_prompt(prompt)
-
-        # Step 5: Wait + Download
-        self.wait_for_generation()
-
-        saved: Path | None = None
-        imgs = self.collect_images()
-        if imgs:
-            best = max(imgs, key=lambda i: len(i["bytes"]))
-            dest.write_bytes(best["bytes"])
-            log.info("saved %s (%.0f KB, %sx%s)", dest.name, len(best["bytes"]) / 1024, best.get("w"), best.get("h"))
-            saved = dest
-
-        if saved is None:
+        try:
+            self.send_prompt(prompt)
+            self.wait_for_generation()
+            images = self.collect_images()
+            for item in sorted(images, key=lambda x: len(x["bytes"]), reverse=True):
+                try:
+                    valid = self._validated_image(item["bytes"], dest)
+                    tmp = dest.with_name(dest.name + ".tmp")
+                    tmp.write_bytes(valid)
+                    os.replace(tmp, dest)
+                    return {"ok": True, "path": str(dest), "sha256": hashlib.sha256(valid).hexdigest()}
+                except ChatGPTError as exc:
+                    log.warning("image candidate rejected: %s", exc)
             saved = self.download_via_button(dest)
-
-        if saved is None:
-            raise ChatGPTError(f"no image could be captured for {dest.name}")
-
-        return {"ok": True, "path": str(saved)}
+            if saved is not None:
+                return {"ok": True, "path": str(saved)}
+            raise ChatGPTError(f"no validated image captured for {dest.name}")
+        finally:
+            self._pending_dest = None
+            self._handled_download = None
 
     # ------------------------------------------------------------- batch session
     def begin_batch(self, reference_images: list = None) -> None:
