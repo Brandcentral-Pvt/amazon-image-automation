@@ -310,13 +310,15 @@ chatgpt:
     aspect_tolerance: 0.07  # Accepts 3:4 or 5:6 portrait ratios
   # CSS selectors (update when ChatGPT UI changes)
   selectors:
-    prompt_box: 'div[contenteditable="true"][data-testid="prompt-textarea"]'
-    send_button: 'button[data-testid="send-button"]'
+    prompt_box: '#prompt-textarea[contenteditable="true"], [data-testid="prompt-textarea"] [contenteditable="true"], div.ProseMirror[contenteditable="true"]'
+    send_button: 'button[data-testid="send-button"], button[aria-label="Send prompt"], button[aria-label="Send message"]'
     attach_buttons:
+      - 'button[data-testid="composer-plus-btn"]'
       - 'button[aria-label*="Attach" i]'
       - 'button[aria-label*="Upload" i]'
       - '[data-testid*="attachment" i]'
     upload_menu_items:
+      - 'text="Upload photos and files"'
       - 'text="Upload from computer"'
       - 'text="Upload file"'
       - '[role="menuitem"]:has-text("Upload")'
