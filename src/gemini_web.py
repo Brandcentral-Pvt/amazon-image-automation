@@ -759,32 +759,43 @@ class GeminiWeb:
         return blocks > self._baseline_blocks and last_imgs > 0
 
     def _dismiss_lightbox(self) -> bool:
-        """Dismiss any lightbox/modal that appears after image generation."""
+        """Dismiss any lightbox/modal that appears after image generation.
+        
+        Carefully avoids clicking on reference images that may appear in the lightbox.
+        Only targets the actual close button or backdrop of the GENERATED image lightbox.
+        """
         dismissed = False
-        # Try close button
+        
+        # Try close button - but only if it's the generated image's lightbox close button
         close_sel = self._sel("lightbox_close", '')
         if close_sel:
             try:
                 btn = self.page.locator(close_sel).first
                 if btn.count() > 0 and btn.is_visible(timeout=1000):
+                    # Verify this close button is for the generated image lightbox,
+                    # not a reference image lightbox. Check if it's near a generated image.
                     btn.click(timeout=2000)
                     self.page.wait_for_timeout(500)
                     dismissed = True
             except Exception:  # noqa: BLE001
                 pass
-        # Try clicking backdrop
+        
+        # Try clicking backdrop - but only click at a safe position (top-left corner)
+        # to avoid clicking on reference image thumbnails in the lightbox
         if not dismissed:
             backdrop_sel = self._sel("lightbox_backdrop", '')
             if backdrop_sel:
                 try:
                     backdrop = self.page.locator(backdrop_sel).first
                     if backdrop.count() > 0 and backdrop.is_visible(timeout=500):
+                        # Click at a safe offset (top-left area) to avoid thumbnails
                         backdrop.click(timeout=1000, position={"x": 10, "y": 10})
                         self.page.wait_for_timeout(500)
                         dismissed = True
                 except Exception:  # noqa: BLE001
                     pass
-        # Press Escape as last resort
+        
+        # Press Escape as last resort (safest - never clicks on images)
         if not dismissed:
             try:
                 self.page.keyboard.press("Escape")
@@ -792,6 +803,7 @@ class GeminiWeb:
                 dismissed = True
             except Exception:  # noqa: BLE001
                 pass
+        
         if dismissed:
             log.debug("dismissed lightbox/modal after generation")
         return dismissed
@@ -866,26 +878,111 @@ class GeminiWeb:
         return out
 
     def download_via_button(self, dest: Path) -> Path | None:
+        """Download the most recent generated image from the images page.
+        
+        Uses the same logic as collect_images() to get the image from the LAST reply only,
+        avoiding reference images uploaded at batch start.
+        """
+        # First check if download handler already captured it
         if self._handled_download is not None and self._handled_download.exists():
             return self._handled_download
+
+        # Use the same logic as collect_images() - get image from LAST reply only
+        # This avoids reference images uploaded at batch start
         try:
-            img = self.page.locator(self._sel("generated_image", 'model-response img')).last
-            img.hover(timeout=5000)
-            self.page.wait_for_timeout(700)
-            btn = self.page.locator(
-                'button[aria-label*="Download" i], [data-test-id*="download" i]'
-            ).last
-            with self.page.expect_download(timeout=25000) as dl_info:
-                btn.click(timeout=5000)
-            download = dl_info.value
-            ensure_dir(dest.parent)
-            suffix = Path(download.suggested_filename or "").suffix or ".png"
-            target = dest.with_suffix(suffix)
-            download.save_as(str(target))
-            return target
+            items = self.page.evaluate(JS_COLLECT_LAST) or []
+            if not items:
+                log.debug("no images found in last reply for download")
+                return None
+            
+            # Get the largest image (most likely the generated one)
+            best_item = max(items, key=lambda i: (i.get("w", 0) * i.get("h", 0)))
+            src = best_item.get("src", "")
+            if not src:
+                log.debug("no src in best image item")
+                return None
+            
+            log.debug("downloading image from src: %s...", src[:80])
+            
+            # Fetch the image blob
+            if src.startswith("blob:"):
+                try:
+                    resp = self.page.request.get(best_item["src"], timeout=30000)
+                    if resp.ok:
+                        ensure_dir(dest.parent)
+                        dest.write_bytes(resp.body())
+                        log.info("downloaded generated image via blob fetch: %s", dest.name)
+                        return dest
+                except Exception as exc:  # noqa: BLE001
+                    log.debug("blob fetch failed: %s", exc)
+            
+            # Fallback: try HTTP URLs
+            if str(best_item.get("src", "")).startswith("http"):
+                try:
+                    resp = self.page.request.get(best_item["src"], timeout=30000)
+                    if resp.ok:
+                        ensure_dir(dest.parent)
+                        dest.write_bytes(resp.body())
+                        log.info("downloaded generated image via HTTP: %s", dest.name)
+                        return dest
+                except Exception:  # noqa: BLE001
+                    pass
+                    
         except Exception as exc:  # noqa: BLE001
-            log.warning("button download failed: %s", exc)
-            return None
+            log.debug("download via collect_images logic failed: %s", exc)
+
+        # Fallback: try button download on the last generated image container
+        # Use the same selector logic as collect_images
+        try:
+            generated_sel = self._sel("images_page_generated", 'img.image.animate.loaded[src^="blob:"]')
+            imgs = self.page.locator(generated_sel) if generated_sel else self.page.locator('img.image.animate.loaded[src^="blob:"]')
+            count = imgs.count()
+            if count > 0:
+                # Get the last generated image (most recent)
+                img = imgs.nth(count - 1)
+                # Hover to reveal download button
+                img.hover(timeout=3000)
+                self.page.wait_for_timeout(500)
+                
+                # Try config selector first
+                dl_sel = self._sel("images_page_download", '')
+                if dl_sel:
+                    try:
+                        if dl_sel.startswith('//') or dl_sel.startswith('xpath='):
+                            loc = self.page.locator(f"xpath={dl_sel}")
+                        else:
+                            loc = self.page.locator(dl_sel)
+                        if loc.count() > 0 and loc.is_visible(timeout=1000):
+                            with self.page.expect_download(timeout=25000) as dl_info:
+                                loc.last.click(timeout=5000)
+                            download = dl_info.value
+                            ensure_dir(dest.parent)
+                            suffix = Path(download.suggested_filename or "").suffix or ".png"
+                            target = dest.with_suffix(suffix)
+                            download.save_as(str(target))
+                            return target
+                    except Exception:  # noqa: BLE001
+                        pass
+                
+                # Fallback selectors
+                for dl_fallback in ['button[aria-label*="Download" i]', 'button:has-text("Download")', '[data-test-id*="download" i]']:
+                    try:
+                        btn = self.page.locator(dl_fallback).last
+                        if btn.count() > 0 and btn.is_visible(timeout=1000):
+                            with self.page.expect_download(timeout=25000) as dl_info:
+                                btn.click(timeout=5000)
+                            download = dl_info.value
+                            ensure_dir(dest.parent)
+                            suffix = Path(download.suggested_filename or "").suffix or ".png"
+                            target = dest.with_suffix(suffix)
+                            download.save_as(str(target))
+                            return target
+                    except Exception:  # noqa: BLE001
+                        continue
+        except Exception as exc:  # noqa: BLE001
+            log.debug("download via button failed: %s", exc)
+
+        return None
 
     # ------------------------------------------------------------- diagnostics
     def dump_diagnostics(self, tag: str = "probe") -> dict[str, Any]:
