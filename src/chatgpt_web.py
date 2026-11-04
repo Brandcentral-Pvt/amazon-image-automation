@@ -5,7 +5,7 @@ No API key needed: a persisted Chrome profile keeps the ChatGPT session alive.
 Follows the same 6-step workflow as Gemini:
 1. Open ChatGPT web page (custom GPT URL)
 2. Upload ref images
-3. Select/Create mode (GPT-4o auto-triggers DALL-E 3)
+3. Select/Create mode (image generation depends on the selected ChatGPT experience)
 4. Click generation button (send prompt)
 5. Download Generation
 6. Next Generation (caller loops)
@@ -18,8 +18,13 @@ import base64
 import datetime as dt
 import json
 import time
+import io
+import hashlib
+import os
 from pathlib import Path
 from typing import Any
+
+from PIL import Image, UnidentifiedImageError
 
 from .config import Config
 from .utils import PROJECT_ROOT, ensure_dir, human_delay, log, write_json
@@ -127,6 +132,11 @@ class ChatGPTError(RuntimeError):
     pass
 
 
+class ChatGPTSubmissionUncertain(ChatGPTError):
+    """Submission may already be active, so automatic retry is unsafe."""
+    unsafe_to_retry = True
+
+
 class ChatGPTWeb:
     def __init__(self, cfg: Config, headless: bool = False):
         self.cfg = cfg
@@ -141,10 +151,14 @@ class ChatGPTWeb:
         # one-chat-per-batch state
         self._baseline_images = 0
         self._baseline_blocks = 0
+        self._baseline_users = 0
+        self._response_block_index = -1
         self._refs_attached = False
         # download routing
         self._pending_dest: Path | None = None
         self._handled_download: Path | None = None
+        self._seen_image_hashes: set[str] = set()
+        self._reference_hashes: set[str] = set()
 
     # ------------------------------------------------------------- lifecycle
     def __enter__(self) -> "ChatGPTWeb":
@@ -222,7 +236,7 @@ class ChatGPTWeb:
             name = download.suggested_filename or f"chatgpt_{dt.datetime.now():%Y%m%d_%H%M%S}.png"
             suffix = Path(name).suffix or ".png"
             if self._pending_dest is not None:
-                target = self._pending_dest.with_suffix(suffix)
+                target = self._pending_dest.with_name(self._pending_dest.name + ".download" + suffix)
             else:
                 target = ensure_dir(self.cfg.out_root() / "_downloads") / name
             ensure_dir(target.parent)
@@ -328,111 +342,112 @@ class ChatGPTWeb:
             return -1
 
     def upload_images(self, paths: list[Path]) -> int:
+        requested = [Path(p) for p in paths]
         max_refs = int(self.cfg.get("chatgpt.max_reference_images", 10))
-        paths = [Path(p) for p in paths if Path(p).exists()][:max_refs]
-        if not paths:
+        if not requested:
             return 0
-
-        self._pending_files = paths
+        if len(requested) > max_refs:
+            raise ChatGPTError(f"{len(requested)} reference files exceed the configured limit {max_refs}")
+        if any(not p.is_file() for p in requested):
+            raise ChatGPTError("one or more reference images are missing")
+        self._pending_files = requested
         self._chooser_fired = False
         self._files_set = False
-        upload_wait = int(self.cfg.get("chatgpt.upload_wait_sec", 10))
         baseline = self._preview_count()
+        if baseline < 0:
+            raise ChatGPTError("could not inspect upload attachments")
 
-        # Strategy 1: direct input
-        fi = self.find_file_input()
-        if fi is not None:
-            try:
-                fi.set_input_files([str(p) for p in paths])
-                self.page.wait_for_timeout(upload_wait * 1000)
-                if self._preview_count() > baseline:
-                    log.info("attached %d image(s) via <input type=file>", len(paths))
-                    return len(paths)
-                log.debug("input accepted files but no upload preview appeared - falling back")
-            except Exception as exc:
-                log.debug("direct input failed (%s) - falling back to chooser", exc)
+        try:
+            fi = self.find_file_input()
+            if fi is not None:
+                try:
+                    fi.set_input_files([str(p) for p in requested])
+                except Exception as exc:
+                    log.debug("direct file input failed: %s", exc)
+            else:
+                clicked = self._click_first(self._attach_candidates())
+                if not clicked:
+                    raise ChatGPTError("no attachment control available")
+                if not self._chooser_fired:
+                    self._click_first(self._menu_item_candidates())
 
-        # Strategy 2: click attach button
-        clicked = self._click_first(self._attach_candidates())
-        if clicked and not self._chooser_fired:
-            self.page.wait_for_timeout(1200)
-            if not self._chooser_fired:
-                self._click_first(self._menu_item_candidates())
-
-        # Strategy 3: wait for chooser/preview
-        deadline = time.time() + int(self.cfg.get("chatgpt.upload_timeout_sec", 30))
-        attached = False
-        while time.time() < deadline:
-            if self._files_set or self._preview_count() > baseline:
-                attached = True
-                break
-            self.page.wait_for_timeout(700)
-
-        if attached:
-            self.page.wait_for_timeout(upload_wait * 1000)
-            log.info("attached %d reference image(s)", len(paths))
-            return len(paths)
-
-        diag = self.dump_diagnostics("upload_failed")
-        raise ChatGPTError(
-            "could not attach images to ChatGPT. "
-            f"Diagnostics: {diag.get('json')} | {diag.get('screenshot')}. "
-            "Run `python run.py chatgpt-probe --interactive`."
-        )
+            deadline = time.monotonic() + int(self.cfg.get("chatgpt.upload_timeout_sec", 30))
+            while time.monotonic() < deadline:
+                current = self._preview_count()
+                if current >= baseline + len(requested):
+                    self._refs_attached = True
+                    return len(requested)
+                self.page.wait_for_timeout(500)
+            raise ChatGPTError(
+                f"attachment verification timed out: expected {len(requested)} new previews, "
+                f"observed {max(0, self._preview_count() - baseline)}"
+            )
+        finally:
+            self._pending_files = []
 
     # ------------------------------------------------------------- send prompt
     def send_prompt(self, prompt: str) -> None:
-        try:
-            self._baseline_images = int(self.page.evaluate(JS_COUNT_IMAGES))
-            self._baseline_blocks = int(self.page.evaluate(JS_COUNT_BLOCKS))
-        except Exception:
-            self._baseline_images = self._baseline_blocks = 0
-
+        if not prompt.strip():
+            raise ChatGPTError("empty generation prompt")
+        self._baseline_blocks = int(self.page.evaluate(JS_COUNT_BLOCKS))
+        self._baseline_users = int(self.page.locator('[data-message-author-role="user"]').count())
+        self._response_block_index = self._baseline_blocks
         box = self.page.locator(self._sel("prompt_box")).first
         box.click(timeout=15000)
-        self.page.wait_for_timeout(400)
-        self.page.keyboard.insert_text(prompt)
-        self.page.wait_for_timeout(600)
-
-        sent = False
-        try:
-            btn = self.page.locator(self._sel("send_button", 'button[data-testid="send-button"]')).first
-            if btn.is_visible(timeout=1500):
-                btn.click(timeout=4000)
-                sent = True
-        except Exception:
-            pass
-        if not sent:
-            self.page.keyboard.press("Enter")
-        log.debug("prompt sent (%d chars)", len(prompt))
+        box.fill(prompt, timeout=15000)
+        actual = (box.inner_text(timeout=5000) or "").strip()
+        if actual != prompt.strip():
+            raise ChatGPTError("prompt composer contents did not match requested prompt")
+        btn = self.page.locator(self._sel("send_button", 'button[data-testid="send-button"]')).first
+        if not btn.is_visible(timeout=5000) or not btn.is_enabled(timeout=5000):
+            raise ChatGPTError("send button is not ready")
+        btn.click(timeout=5000)
+        deadline = time.monotonic() + 15
+        while time.monotonic() < deadline:
+            if self.page.locator('[data-message-author-role="user"]').count() > self._baseline_users:
+                log.info("ChatGPT accepted prompt (%d chars)", len(prompt))
+                return
+            self.page.wait_for_timeout(300)
+        raise ChatGPTSubmissionUncertain("prompt submission was not confirmed; do not retry blindly")
 
     def _new_reply_ready(self) -> bool:
         try:
-            imgs = int(self.page.evaluate(JS_COUNT_IMAGES))
-            blocks = int(self.page.evaluate(JS_COUNT_BLOCKS))
-            last_imgs = int(self.page.evaluate(JS_COUNT_LAST))
+            blocks = self.page.locator('[data-message-author-role="assistant"]')
+            if blocks.count() <= self._baseline_blocks:
+                return False
+            for index in range(self._baseline_blocks, blocks.count()):
+                images = blocks.nth(index).locator("img")
+                for j in range(images.count()):
+                    image = images.nth(j)
+                    if image.evaluate("(el) => el.complete && el.naturalWidth >= 200 && el.naturalHeight >= 200"):
+                        return True
+            return False
         except Exception:
             return False
-        if imgs > self._baseline_images:
-            return True
-        return blocks > self._baseline_blocks and last_imgs > 0
 
     # ------------------------------------------------------------- wait for generation
     def wait_for_generation(self) -> None:
         timeout = int(self.cfg.get("chatgpt.generation_timeout_sec", 300))
-        deadline = time.time() + timeout
-        started = time.time()
+        deadline = time.monotonic() + timeout
+        started = time.monotonic()
 
         self.page.wait_for_timeout(3000)
-        while time.time() < deadline:
+        stable = 0
+        while time.monotonic() < deadline:
             try:
-                if self._new_reply_ready():
-                    self.page.wait_for_timeout(3000)
-                    log.info("generation ready in %.0fs", time.time() - started)
-                    self._dismiss_lightbox()
-                    return
+                # A visible stop control indicates that the response is still streaming.
+                stop = self.page.locator('button[data-testid="stop-button"], button[aria-label*="Stop generating" i]')
+                running = any(stop.nth(i).is_visible() for i in range(stop.count()))
+                if self._new_reply_ready() and not running:
+                    stable += 1
+                    if stable >= 3:
+                        log.info("generation ready in %.0fs", time.monotonic() - started)
+                        self._dismiss_lightbox()
+                        return
+                else:
+                    stable = 0
             except Exception:
-                pass
+                stable = 0
             self.page.wait_for_timeout(2000)
 
         excerpt = ""
@@ -443,7 +458,7 @@ class ChatGPTWeb:
         raise ChatGPTError(
             "ChatGPT replied without an image"
             + (f": \"{excerpt}\"" if excerpt else "")
-            + " | Check if GPT-4o triggered DALL-E 3"
+            + " | Verify that ChatGPT produced an image in this conversation"
         )
 
     # ------------------------------------------------------------- lightbox dismiss
@@ -470,53 +485,120 @@ class ChatGPTWeb:
         return False
 
     # ------------------------------------------------------------- download
+    def _validated_image(self, raw: bytes, expected: Path) -> bytes:
+        try:
+            with Image.open(io.BytesIO(raw)) as img:
+                img.verify()
+            with Image.open(io.BytesIO(raw)) as img:
+                width, height = img.size
+                if max(width, height) < int(self.cfg.get("chatgpt.image_check.min_long_side_px", 1000)):
+                    raise ChatGPTError(f"generated image is too small: {width}x{height}")
+                ratio = min(width, height) / max(width, height)
+                tolerance = float(self.cfg.get("chatgpt.image_check.aspect_tolerance", 0.07))
+                if not any(abs(ratio - target) <= tolerance for target in (0.75, 5.0 / 6.0)):
+                    raise ChatGPTError(f"invalid image aspect ratio: {width}x{height}")
+                if expected.suffix.lower() == ".png":
+                    converted = io.BytesIO()
+                    img.convert("RGB").save(converted, format="PNG")
+                    return converted.getvalue()
+                if expected.suffix.lower() in (".jpg", ".jpeg"):
+                    converted = io.BytesIO()
+                    img.convert("RGB").save(converted, format="JPEG", quality=95)
+                    return converted.getvalue()
+                raise ChatGPTError(f"unsupported output extension: {expected.suffix}")
+        except (UnidentifiedImageError, OSError, ValueError) as exc:
+            raise ChatGPTError("downloaded bytes are not a valid image") from exc
+
+    @staticmethod
+    def _content_fingerprint(raw: bytes) -> str:
+        with Image.open(io.BytesIO(raw)) as img:
+            return hashlib.sha256(img.convert("RGB").resize((128, 128)).tobytes()).hexdigest()
+
+    def _save_candidate(self, raw: bytes, dest: Path) -> str:
+        valid = self._validated_image(raw, dest)
+        fingerprint = self._content_fingerprint(valid)
+        if fingerprint in self._reference_hashes:
+            raise ChatGPTError("image duplicates an uploaded reference")
+        if fingerprint in self._seen_image_hashes:
+            raise ChatGPTError("image duplicates an earlier generated slot")
+        tmp = dest.with_name(dest.name + ".tmp")
+        try:
+            tmp.write_bytes(valid)
+            os.replace(tmp, dest)
+        finally:
+            tmp.unlink(missing_ok=True)
+        self._seen_image_hashes.add(fingerprint)
+        return hashlib.sha256(valid).hexdigest()
+
     def collect_images(self) -> list[dict[str, Any]]:
-        items = self.page.evaluate(JS_COLLECT_LAST) or []
+        if self.page.locator('[data-message-author-role="assistant"]').count() <= self._baseline_blocks:
+            return []
+        # Only inspect responses created after this prompt, never earlier history.
         out: list[dict[str, Any]] = []
-        for item in items:
-            raw: bytes | None = None
-            if item.get("b64"):
+        blocks = self.page.locator('[data-message-author-role="assistant"]')
+        for index in range(self._baseline_blocks, blocks.count()):
+            block = blocks.nth(index)
+            for img in block.locator("img").all():
                 try:
-                    raw = base64.b64decode(item["b64"])
-                except Exception:
-                    raw = None
-            if raw is None and str(item.get("src", "")).startswith("http"):
-                try:
-                    resp = self.page.request.get(item["src"], timeout=30000)
-                    if resp.ok:
-                        raw = resp.body()
-                except Exception:
-                    raw = None
-            if raw and len(raw) > 20000:
-                out.append({"bytes": raw, "w": item.get("w"), "h": item.get("h")})
+                    info = img.evaluate("(el) => ({src: el.currentSrc || el.src, w: el.naturalWidth, h: el.naturalHeight})")
+                    src = info.get("src", "")
+                    if info.get("w", 0) < 200 or info.get("h", 0) < 200 or not src:
+                        continue
+                    if src.startswith("blob:") or src.startswith("data:"):
+                        b64 = img.evaluate("""async el => {
+                            const r = await fetch(el.currentSrc || el.src);
+                            const bytes = new Uint8Array(await r.arrayBuffer());
+                            let binary = '';
+                            for (let i=0; i<bytes.length; i+=8192) {
+                              binary += String.fromCharCode(...bytes.slice(i,i+8192));
+                            }
+                            return btoa(binary);
+                        }""")
+                        raw = base64.b64decode(b64)
+                    elif src.startswith("https://"):
+                        response = self.page.request.get(src, timeout=30000)
+                        raw = response.body() if response.ok else b""
+                    else:
+                        continue
+                    if len(raw) > 20000:
+                        out.append({"bytes": raw, "w": info["w"], "h": info["h"]})
+                except Exception as exc:
+                    log.debug("image collection candidate failed: %s", exc)
         return out
 
     def download_via_button(self, dest: Path) -> Path | None:
-        if self._handled_download is not None and self._handled_download.exists():
-            return self._handled_download
-
+        candidate = self._handled_download
+        if candidate is None or not candidate.exists():
+            # The DOM image URL can be inaccessible. Use the UI download control
+            # associated with this prompt rather than relying on an arbitrary page button.
+            blocks = self.page.locator('[data-message-author-role="assistant"]')
+            if blocks.count() <= self._baseline_blocks:
+                return None
+            selector = self._sel("download_button", 'button[aria-label*="Download" i]')
+            button = None
+            for index in range(blocks.count() - 1, self._baseline_blocks - 1, -1):
+                buttons = blocks.nth(index).locator(selector)
+                if buttons.count():
+                    button = buttons.first
+                    break
+            if button is None:
+                return None
+            try:
+                with self.page.expect_download(timeout=30000) as info:
+                    button.click(timeout=5000)
+                download = info.value
+                suffix = Path(download.suggested_filename or "").suffix or ".png"
+                candidate = dest.with_name(dest.name + ".download" + suffix)
+                download.save_as(str(candidate))
+            except Exception as exc:
+                log.warning("ChatGPT UI image download failed: %s", exc)
+                return None
         try:
-            items = self.page.evaluate(JS_COLLECT_LAST) or []
-            if not items:
-                return None
-            best_item = max(items, key=lambda i: (i.get("w", 0) * i.get("h", 0)))
-            src = best_item.get("src", "")
-            if not src:
-                return None
-
-            if src.startswith("blob:") or src.startswith("http"):
-                try:
-                    resp = self.page.request.get(best_item["src"], timeout=30000)
-                    if resp.ok:
-                        ensure_dir(dest.parent)
-                        dest.write_bytes(resp.body())
-                        log.info("downloaded generated image via fetch: %s", dest.name)
-                        return dest
-                except Exception:
-                    pass
-        except Exception:
-            pass
-        return None
+            self._save_candidate(candidate.read_bytes(), dest)
+            return dest
+        finally:
+            if candidate != dest:
+                candidate.unlink(missing_ok=True)
 
     # ------------------------------------------------------------- diagnostics
     def dump_diagnostics(self, tag: str = "probe") -> dict[str, Any]:
@@ -559,46 +641,42 @@ class ChatGPTWeb:
         prompt_record: str | None = None,
     ) -> dict[str, Any]:
         ensure_dir(dest.parent)
-
         if dry_run:
-            p = dest.with_suffix(".txt")
-            p.write_text(prompt_record or prompt, encoding="utf-8")
-            log.info("[dry-run] prompt saved -> %s", p.name)
-            return {"ok": True, "path": str(p), "dry_run": True}
+            record = dest.with_suffix(".txt")
+            record.write_text(prompt_record or prompt, encoding="utf-8")
+            return {"ok": True, "path": str(record), "dry_run": True}
 
         self._handled_download = None
         self._pending_dest = dest
-
-        # Step 4: Send prompt
-        self.send_prompt(prompt)
-
-        # Step 5: Wait + Download
-        self.wait_for_generation()
-
-        saved: Path | None = None
-        imgs = self.collect_images()
-        if imgs:
-            best = max(imgs, key=lambda i: len(i["bytes"]))
-            dest.write_bytes(best["bytes"])
-            log.info("saved %s (%.0f KB, %sx%s)", dest.name, len(best["bytes"]) / 1024, best.get("w"), best.get("h"))
-            saved = dest
-
-        if saved is None:
+        try:
+            self.send_prompt(prompt)
+            self.wait_for_generation()
+            images = self.collect_images()
+            for item in sorted(images, key=lambda x: len(x["bytes"]), reverse=True):
+                try:
+                    digest = self._save_candidate(item["bytes"], dest)
+                    return {"ok": True, "path": str(dest), "sha256": digest}
+                except ChatGPTError as exc:
+                    log.warning("image candidate rejected: %s", exc)
             saved = self.download_via_button(dest)
-
-        if saved is None:
-            raise ChatGPTError(f"no image could be captured for {dest.name}")
-
-        return {"ok": True, "path": str(saved)}
+            if saved is not None:
+                return {"ok": True, "path": str(saved)}
+            raise ChatGPTError(f"no validated image captured for {dest.name}")
+        finally:
+            self._pending_dest = None
+            self._handled_download = None
 
     # ------------------------------------------------------------- batch session
     def begin_batch(self, reference_images: list = None) -> None:
-        """6-step setup:
-        1. Open ChatGPT page
-        2. Upload ref images
-        3. (No model picker - GPT-4o auto-triggers DALL-E 3)
-        """
+        """Start a fresh ASIN conversation and verify the reference attachments."""
         self.new_chat()
+        self._seen_image_hashes = set()
+        self._reference_hashes = set()
+        for item in reference_images or []:
+            try:
+                self._reference_hashes.add(self._content_fingerprint(Path(item).read_bytes()))
+            except (OSError, UnidentifiedImageError, ValueError) as exc:
+                raise ChatGPTError(f"invalid reference image: {item}") from exc
         if reference_images:
             log.info("uploading %d reference images", len(reference_images))
             self.upload_images(reference_images)
@@ -620,6 +698,18 @@ class ChatGPTWeb:
             raise
         except Exception as exc:
             log.warning("new_chat navigation issue: %s", exc)
+        # A new batch must begin at a clean composer rather than an old reply.
+        previous = self.page.locator('[data-message-author-role="assistant"]').count()
+        if previous:
+            selector = self._sel("new_chat_button", 'button[aria-label*="New chat" i], a[aria-label*="New chat" i]')
+            button = self.page.locator(selector).first
+            if button.count() == 0 or not button.is_visible(timeout=2000):
+                raise ChatGPTError("could not create a fresh ChatGPT conversation")
+            button.click(timeout=5000)
+            self.page.wait_for_timeout(1500)
+            if self.page.locator('[data-message-author-role="assistant"]').count():
+                raise ChatGPTError("ChatGPT still displays previous conversation after new chat")
+        self._assert_logged_in()
         self._refs_attached = False
 
 
@@ -632,7 +722,7 @@ def chatgpt_login(cfg: Config) -> int:
     with sync_playwright() as pw:
         ctx, _ = launch_chatgpt_context(pw, cfg, headless=False)
         page = ctx.pages[0] if ctx.pages else ctx.new_page()
-        url = cfg.get("chatgpt.url", "https://chatgpt.com/g/g-p-6aeafd8cf6148191b9034dbaaf247ba1/project")
+        url = cfg.get("chatgpt.url", "https://chatgpt.com/g/g-p-6aeafd8cf6148191b9034dbaaf247ba1")
         page.goto(url, wait_until="domcontentloaded")
         try:
             input("Press Enter after you've signed in to ChatGPT...")

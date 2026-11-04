@@ -465,8 +465,11 @@ def launch_chatgpt_context(pw, cfg: Config, headless: bool = True):
         "viewport": cfg.get("browser.viewport", {"width": 1440, "height": 900}),
         "locale": cfg.get("browser.locale", "en-US"),
         "ignore_default_args": ["--enable-automation"],
-        "executable_path": cfg.get("chatgpt.chrome_executable_path") or "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
+        "args": args,
     }
+    executable = cfg.get("chatgpt.chrome_executable_path")
+    if executable:
+        kwargs["executable_path"] = executable
     if cfg.get("browser.user_agent"):
         kwargs["user_agent"] = cfg.get("browser.user_agent")
     if cfg.get("browser.proxy"):

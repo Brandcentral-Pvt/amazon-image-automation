@@ -22,11 +22,12 @@ class ConfigError(RuntimeError):
 REQUIRED_FIELDS = (
     "amazon.domain",
     "output.root",
-    "gemini.url",
 )
 
 CONDITIONAL_REQUIRED = (
     ("watermark.enabled", "watermark.engine_dir"),
+    ("gemini.enabled", "gemini.url"),
+    ("chatgpt.enabled", "chatgpt.url"),
 )
 
 

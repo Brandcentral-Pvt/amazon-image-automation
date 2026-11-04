@@ -122,25 +122,35 @@ class Pipeline:
                 log.info("%s: [dry-run] %d prompts prepared", asin, len(bundle))
             return {"ok": len(prepared), "failed": 0, "dry_run": True}
 
-        from .gemini_web import GeminiWeb
-        from .chatgpt_web import ChatGPTWeb
+        provider = str(self.cfg.get("generation.provider", "gemini")).strip().lower()
+        if provider == "chatgpt":
+            from .chatgpt_web import ChatGPTWeb as Generator
+        elif provider == "gemini":
+            from .gemini_web import GeminiWeb as Generator
+        else:
+            raise ValueError(f"unsupported image generation provider: {provider}")
 
-        # Determine which provider to use
-        provider = self.cfg.get("generation.provider", "gemini").lower()
-        
         stats = {"ok": 0, "failed": 0, "slots_ok": 0, "slots_failed": 0}
         headless = self.cfg.get("browser.headless", True)
-
-        if provider == "chatgpt":
-            with ChatGPTWeb(self.cfg, headless=headless) as client:
-                for asin, (product, bundle, refs, master) in prepared.items():
-                    stats.update(self._generate_one(client, asin, product, bundle, refs, master))
-                    human_delay([5, 10], "between asins")
-        else:
-            with GeminiWeb(self.cfg, headless=headless) as gem:
-                for asin, (product, bundle, refs, master) in prepared.items():
-                    stats.update(self._generate_one(gem, asin, product, bundle, refs, master))
-                    human_delay([5, 10], "between asins")
+        with Generator(self.cfg, headless=headless) as client:
+            for asin, (product, bundle, refs, master) in prepared.items():
+                try:
+                    if provider == "chatgpt" and not refs:
+                        raise ValueError("ChatGPT requires reference images for product-faithful generation")
+                    result = self._generate_one(client, asin, product, bundle, refs, master)
+                except Exception as exc:  # noqa: BLE001
+                    log.exception("%s: generation aborted: %s", asin, exc)
+                    manifest = self.load_manifest(asin)
+                    manifest.setdefault("stages", {})["generate"] = {
+                        "status": "failed", "error": str(exc)[:400],
+                        "at": dt.datetime.now().isoformat(timespec="seconds"),
+                    }
+                    self.save_manifest(asin, manifest)
+                    self.report(asin, product, manifest, "failed", str(exc))
+                    result = {"failed": 1}
+                for key in stats:
+                    stats[key] += result.get(key, 0)
+                human_delay([5, 10], "between asins")
         return stats
 
     def _generate_one(self, client, asin: str, product: ProductData,
@@ -173,8 +183,9 @@ class Pipeline:
         # STRICT SEQUENCE: upload refs -> select Create image -> set 3:4
         client.begin_batch(reference_images=refs)
 
-        retries = int(self.cfg.get("gemini.slot_retries", 2))
-        retry_delay = self.cfg.get("gemini.slot_retry_delay_sec", [10, 20])
+        provider = str(self.cfg.get("generation.provider", "gemini")).strip().lower()
+        retries = int(self.cfg.get(f"{provider}.slot_retries", 2))
+        retry_delay = self.cfg.get(f"{provider}.slot_retry_delay_sec", [10, 20])
 
         for item in pending:
             slot = item["slot_id"]
@@ -193,6 +204,8 @@ class Pipeline:
                         client.restart_batch(reference_images=refs)
                     except Exception as exc:  # noqa: BLE001
                         log.error("%s %s: batch restart failed: %s", asin, slot, exc)
+                        last_error = exc
+                        continue
                 try:
                     result = client.generate_image(
                         prompt=item["prompt"],
@@ -218,6 +231,9 @@ class Pipeline:
                     last_error = exc
                     log.error("%s %s attempt %d/%d failed: %s", asin, slot,
                               attempt, retries + 1, exc)
+                    if getattr(exc, "unsafe_to_retry", False):
+                        log.error("%s %s: ambiguous prompt submission; stop retries", asin, slot)
+                        break
                     continue
 
             if last_error is None:
@@ -254,7 +270,7 @@ class Pipeline:
         self.save_manifest(asin, manifest)
         self._write_index(asin, manifest)
         self.report(asin, product, manifest, status, "" if failed == 0 else f"{failed} slot(s) failed")
-        return {"ok": 1 if ok else 0, "failed": 1 if failed and not ok else 0,
+        return {"ok": 1 if failed == 0 and ok else 0, "failed": 1 if failed else 0,
                 "slots_ok": ok, "slots_failed": failed}
 
     # ------------------------------------------------------------- extras
