@@ -165,7 +165,7 @@ chatgpt:
   url: "https://chatgpt.com/g/g-p-6aeafd8cf6148191b9034dbaaf247ba1-image-gen-auto/c/6aeafe29-7b14-83ec-9492-a9f1690a4d46"
   # Chrome profile for persistent login - use existing logged-in profile
   use_own_chrome_profile: true
-  chrome_profile_name: "brandcentral"  # Profile name where ChatGPT is already logged in
+  chrome_profile_name: "Kathiriya Chirag"  # Profile name where ChatGPT is already logged in (easysell.gpt@gmail.com)
   chrome_channel: "chrome"
   user_data_dir: ".browser-profile-chatgpt"
   chrome_user_data_dir: ""  # Leave empty to auto-detect, or set full path to Chrome user data dir
