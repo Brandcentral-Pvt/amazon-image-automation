@@ -9,3 +9,6 @@ service-account.json
 output/
 logs/
 data/tracking.csv
+
+# Copied authenticated ChatGPT Chrome profile
+.browser-profile-chatgpt/
