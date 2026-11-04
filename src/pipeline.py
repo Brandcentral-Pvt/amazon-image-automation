@@ -134,7 +134,20 @@ class Pipeline:
         headless = self.cfg.get("browser.headless", True)
         with Generator(self.cfg, headless=headless) as client:
             for asin, (product, bundle, refs, master) in prepared.items():
-                result = self._generate_one(client, asin, product, bundle, refs, master)
+                try:
+                    if provider == "chatgpt" and not refs:
+                        raise ValueError("ChatGPT requires reference images for product-faithful generation")
+                    result = self._generate_one(client, asin, product, bundle, refs, master)
+                except Exception as exc:  # noqa: BLE001
+                    log.exception("%s: generation aborted: %s", asin, exc)
+                    manifest = self.load_manifest(asin)
+                    manifest.setdefault("stages", {})["generate"] = {
+                        "status": "failed", "error": str(exc)[:400],
+                        "at": dt.datetime.now().isoformat(timespec="seconds"),
+                    }
+                    self.save_manifest(asin, manifest)
+                    self.report(asin, product, manifest, "failed", str(exc))
+                    result = {"failed": 1}
                 for key in stats:
                     stats[key] += result.get(key, 0)
                 human_delay([5, 10], "between asins")
@@ -191,6 +204,8 @@ class Pipeline:
                         client.restart_batch(reference_images=refs)
                     except Exception as exc:  # noqa: BLE001
                         log.error("%s %s: batch restart failed: %s", asin, slot, exc)
+                        last_error = exc
+                        continue
                 try:
                     result = client.generate_image(
                         prompt=item["prompt"],
@@ -216,6 +231,9 @@ class Pipeline:
                     last_error = exc
                     log.error("%s %s attempt %d/%d failed: %s", asin, slot,
                               attempt, retries + 1, exc)
+                    if getattr(exc, "unsafe_to_retry", False):
+                        log.error("%s %s: ambiguous prompt submission; stop retries", asin, slot)
+                        break
                     continue
 
             if last_error is None:
