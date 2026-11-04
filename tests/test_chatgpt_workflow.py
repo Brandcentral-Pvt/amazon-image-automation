@@ -61,6 +61,24 @@ class ChatGPTImageTests(unittest.TestCase):
         self.assertTrue(any('xpath=' in item for item in self.driver._attach_candidates()))
         self.assertTrue(any('xpath=' in item for item in self.driver._menu_item_candidates()))
 
+    def test_probe_verified_composers_take_priority(self):
+        candidates = self.driver._prompt_candidates()
+        self.assertIn('div[aria-label="Ask ChatGPT"][contenteditable="true"]', candidates)
+        self.assertIn('div[aria-label="Describe edits"][contenteditable="true"]', candidates)
+        self.assertLess(
+            candidates.index('div[aria-label="Ask ChatGPT"][contenteditable="true"]'),
+            candidates.index('div.ProseMirror[contenteditable="true"]')
+        )
+
+    def test_probe_verified_attachment_button(self):
+        candidates = self.driver._attach_candidates()
+        self.assertIn('button[aria-label="Add files and more"]', candidates)
+
+    def test_probe_verified_send_button_is_configured(self):
+        from src.config import load_config
+        configured = load_config().get("chatgpt.selectors.send_button", "")
+        self.assertIn('button[aria-label="Send"]', configured)
+
     def test_missing_or_duplicate_reference_is_not_marked_valid(self):
         raw = make_image()
         fingerprint = self.driver._content_fingerprint(raw)
