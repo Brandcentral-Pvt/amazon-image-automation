@@ -55,6 +55,12 @@ class ChatGPTImageTests(unittest.TestCase):
             with self.assertRaisesRegex(ChatGPTError, "uploaded reference"):
                 fresh._save_candidate(raw, root / "echo.png")
 
+    def test_composer_and_upload_fallbacks(self):
+        self.assertIn('#prompt-textarea[contenteditable="true"]', self.driver._prompt_candidates())
+        self.assertTrue(any('div.ProseMirror' in item for item in self.driver._prompt_candidates()))
+        self.assertTrue(any('xpath=' in item for item in self.driver._attach_candidates()))
+        self.assertTrue(any('xpath=' in item for item in self.driver._menu_item_candidates()))
+
     def test_missing_or_duplicate_reference_is_not_marked_valid(self):
         raw = make_image()
         fingerprint = self.driver._content_fingerprint(raw)
