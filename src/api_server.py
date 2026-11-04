@@ -324,7 +324,8 @@ def start_generation(req: GenerateRequest, background: BackgroundTasks):
             JOBS[job_id]["progress"] = 10
             pipe = Pipeline(cfg, dry_run=False, force=False)
             stats = pipe.generate(req.asins, extra_notes=req.notes)
-            JOBS[job_id]["status"] = "completed"
+            failed = stats.get("slots_failed", 0) or stats.get("failed", 0)
+            JOBS[job_id]["status"] = "partial" if failed and stats.get("slots_ok", 0) else ("failed" if failed else "completed")
             JOBS[job_id]["progress"] = 100
             JOBS[job_id]["slotsCompleted"] = stats.get("slots_ok", 0)
             JOBS[job_id]["slotsFailed"] = stats.get("slots_failed", 0)
