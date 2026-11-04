@@ -15,9 +15,12 @@ if not exist "%VENV_PY%" (
     exit /b 1
 )
 
-if "%~1"=="" (
-    echo.
-    echo ==========================================
+if "%~1"=="" goto menu
+goto %~1
+
+:menu
+echo.
+echo ==========================================
     echo  Amazon ASIN -> 8-Image Bundle (Bot)
     echo ==========================================
     echo.
@@ -38,7 +41,7 @@ if "%~1"=="" (
     if "!choice!"=="6" goto status
     if "!choice!"=="0" goto exit
     echo Invalid choice.
-    goto start
+    goto menu
 
 :login
     shift
