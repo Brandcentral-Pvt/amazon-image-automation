@@ -284,7 +284,7 @@ image_spec:
   min_bytes: 60000             # sanity check on downloaded files
 
 # ---------------------------------------------------------------- ChatGPT
-# Custom GPT image generation (GPT-4o + DALL-E 3)
+# ChatGPT web image generation. Actual model and capabilities are verified at runtime.
 # Uses persistent Chrome profile for login session persistence
 chatgpt:
   enabled: true
@@ -292,7 +292,7 @@ chatgpt:
   url: "https://chatgpt.com/g/g-p-6aeafd8cf6148191b9034dbaaf247ba1/project"
   # Chrome profile for persistent login - use existing logged-in profile
   use_own_chrome_profile: true
-  chrome_profile_name: "Default"
+  chrome_profile_name: "Profile 4"
   chrome_channel: "chrome"
   chrome_executable_path: ""  # Blank uses Playwright Chrome channel discovery
   user_data_dir: ".browser-profile-chatgpt"
@@ -303,6 +303,11 @@ chatgpt:
   upload_timeout_sec: 30
   generation_timeout_sec: 300
   block_wait_sec: 120
+  slot_retries: 2
+  slot_retry_delay_sec: [10, 20]
+  image_check:
+    min_long_side_px: 1000
+    aspect_tolerance: 0.07  # Accepts 3:4 or 5:6 portrait ratios
   # CSS selectors (update when ChatGPT UI changes)
   selectors:
     prompt_box: 'div[contenteditable="true"][data-testid="prompt-textarea"]'
