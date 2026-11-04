@@ -135,7 +135,9 @@ class Pipeline:
 
         with Generator(self.cfg, headless=headless) as gem:
             for asin, (product, bundle, refs, master) in prepared.items():
-                stats.update(self._generate_one(gem, asin, product, bundle, refs, master))
+                result = self._generate_one(gem, asin, product, bundle, refs, master)
+                for key in stats:
+                    stats[key] += result.get(key, 0)
                 human_delay([5, 10], "between asins")
         return stats
 
@@ -251,7 +253,7 @@ class Pipeline:
         self.save_manifest(asin, manifest)
         self._write_index(asin, manifest)
         self.report(asin, product, manifest, status, "" if failed == 0 else f"{failed} slot(s) failed")
-        return {"ok": 1 if ok else 0, "failed": 1 if failed and not ok else 0,
+        return {"ok": 1 if failed == 0 and ok else 0, "failed": 1 if failed else 0,
                 "slots_ok": ok, "slots_failed": failed}
 
     # ------------------------------------------------------------- extras
