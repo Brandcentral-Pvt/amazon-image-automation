@@ -123,17 +123,27 @@ class Pipeline:
             return {"ok": len(prepared), "failed": 0, "dry_run": True}
 
         from .gemini_web import GeminiWeb
+        from .chatgpt_web import ChatGPTWeb
 
+        # Determine which provider to use
+        provider = self.cfg.get("generation.provider", "gemini").lower()
+        
         stats = {"ok": 0, "failed": 0, "slots_ok": 0, "slots_failed": 0}
         headless = self.cfg.get("browser.headless", True)
 
-        with GeminiWeb(self.cfg, headless=headless) as gem:
-            for asin, (product, bundle, refs, master) in prepared.items():
-                stats.update(self._generate_one(gem, asin, product, bundle, refs, master))
-                human_delay([5, 10], "between asins")
+        if provider == "chatgpt":
+            with ChatGPTWeb(self.cfg, headless=headless) as client:
+                for asin, (product, bundle, refs, master) in prepared.items():
+                    stats.update(self._generate_one(client, asin, product, bundle, refs, master))
+                    human_delay([5, 10], "between asins")
+        else:
+            with GeminiWeb(self.cfg, headless=headless) as gem:
+                for asin, (product, bundle, refs, master) in prepared.items():
+                    stats.update(self._generate_one(gem, asin, product, bundle, refs, master))
+                    human_delay([5, 10], "between asins")
         return stats
 
-    def _generate_one(self, gem, asin: str, product: ProductData,
+    def _generate_one(self, client, asin: str, product: ProductData,
                       bundle: list[dict], refs: list[Path], master: str = ""
                       ) -> dict[str, int]:
         adir = self.asin_dir(asin)
@@ -161,7 +171,7 @@ class Pipeline:
 
         # ONE continuous chat for this ASIN batch
         # STRICT SEQUENCE: upload refs -> select Create image -> set 3:4
-        gem.begin_batch(reference_images=refs)
+        client.begin_batch(reference_images=refs)
 
         retries = int(self.cfg.get("gemini.slot_retries", 2))
         retry_delay = self.cfg.get("gemini.slot_retry_delay_sec", [10, 20])
@@ -180,11 +190,11 @@ class Pipeline:
                     try:
                         # clean session: the old chat already holds a broken reply
                         # STRICT SEQUENCE: refs -> Create image -> 3:4 -> master
-                        gem.restart_batch(reference_images=refs)
+                        client.restart_batch(reference_images=refs)
                     except Exception as exc:  # noqa: BLE001
                         log.error("%s %s: batch restart failed: %s", asin, slot, exc)
                 try:
-                    result = gem.generate_image(
+                    result = client.generate_image(
                         prompt=item["prompt"],
                         reference_images=refs,
                         dest=dest,

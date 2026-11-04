@@ -7,12 +7,12 @@ chatgpt:
   url: "https://chatgpt.com/g/g-p-6aeafd8cf6148191b9034dbaaf247ba1/project"
   # Chrome profile for persistent login - use existing logged-in profile
   use_own_chrome_profile: true
-  chrome_profile_name: "Profile 4"  # Profile 4 in Chrome User Data folder (easysell.gpt@gmail.com)
+  chrome_profile_name: "kathiriya"  # Profile 4 in Chrome User Data folder (easysell.gpt@gmail.com)
   chrome_channel: "chrome"
   chrome_executable_path: "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe"  # Full path to Chrome executable
   user_data_dir: ".browser-profile-chatgpt"
   chrome_user_data_dir: "C:\\Users\\Admin\\AppData\\Local\\Google\\Chrome\\User Data"  # Full path to Chrome User Data
-  recopy_chrome_profile: false
+  recopy_chrome_profile: true
   max_reference_images: 10
   upload_wait_sec: 10
   upload_timeout_sec: 30
