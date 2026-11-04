@@ -1,3 +1,15 @@
+generation:
+  provider: chatgpt  # Valid providers: gemini, chatgpt
+
+browser:
+  headless: false  # Keep interactive until browser smoke tests pass
+
+output:
+  root: output
+
+amazon:
+  domain: amazon.in
+
 # ---------------------------------------------------------------- ChatGPT
 # Custom GPT image generation (GPT-4o + DALL-E 3)
 # Uses persistent Chrome profile for login session persistence
@@ -7,7 +19,7 @@ chatgpt:
   url: "https://chatgpt.com/g/g-p-6aeafd8cf6148191b9034dbaaf247ba1/project"
   # Chrome profile for persistent login - use existing logged-in profile
   use_own_chrome_profile: true
-  chrome_profile_name: "Profile 4"  # Profile 4 in Chrome User Data folder (easysell.gpt@gmail.com)
+  chrome_profile_name: "Profile 4"
   chrome_channel: "chrome"
   chrome_executable_path: "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe"  # Full path to Chrome executable
   user_data_dir: ".browser-profile-chatgpt"
