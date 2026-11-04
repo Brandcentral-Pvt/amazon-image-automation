@@ -229,7 +229,7 @@ class ChatGPTWeb:
             name = download.suggested_filename or f"chatgpt_{dt.datetime.now():%Y%m%d_%H%M%S}.png"
             suffix = Path(name).suffix or ".png"
             if self._pending_dest is not None:
-                target = self._pending_dest.with_suffix(suffix)
+                target = self._pending_dest.with_name(self._pending_dest.name + ".download" + suffix)
             else:
                 target = ensure_dir(self.cfg.out_root() / "_downloads") / name
             ensure_dir(target.parent)
@@ -425,15 +425,22 @@ class ChatGPTWeb:
         started = time.time()
 
         self.page.wait_for_timeout(3000)
+        stable = 0
         while time.time() < deadline:
             try:
-                if self._new_reply_ready():
-                    self.page.wait_for_timeout(3000)
-                    log.info("generation ready in %.0fs", time.time() - started)
-                    self._dismiss_lightbox()
-                    return
+                # A visible stop control indicates that the response is still streaming.
+                stop = self.page.locator('button[data-testid="stop-button"], button[aria-label*="Stop generating" i]')
+                running = any(stop.nth(i).is_visible() for i in range(stop.count()))
+                if self._new_reply_ready() and not running:
+                    stable += 1
+                    if stable >= 3:
+                        log.info("generation ready in %.0fs", time.time() - started)
+                        self._dismiss_lightbox()
+                        return
+                else:
+                    stable = 0
             except Exception:
-                pass
+                stable = 0
             self.page.wait_for_timeout(2000)
 
         excerpt = ""
