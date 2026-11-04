@@ -35,6 +35,16 @@ def main() -> int:
     cfg.data["watermark"] = {"enabled": False}
     # hermetic: never attempt NIM calls from the offline suite
     cfg.data["nim"] = {"enabled": False}
+    # hermetic: gallery plan caches must go to the demo dir, never touch the
+    # tracked data/nim/*.gallery.json sample files
+    import src.prompt_gallery as _pg                      # noqa: E402
+
+    def _test_cache_path(product):
+        d = demo_root / "gallery_cache"
+        d.mkdir(parents=True, exist_ok=True)
+        return d / f"{product.asin}.gallery.json"
+
+    _pg._cache_path = _test_cache_path
     # the retry/resume tests below write fake PNG bytes - the image gate is tested
     # separately with real images, so keep it off for the shared fixtures
     cfg.data["gemini"]["image_check"] = {"enabled": False}

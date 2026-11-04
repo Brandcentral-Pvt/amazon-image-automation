@@ -101,17 +101,14 @@ def cmd_clean(args) -> int:
     """Retro-clean already-generated bundles through the watermark remover."""
     import datetime as dt
 
-    from src.utils import read_json, write_json
-    from src.wm_clean import clean_generated_image
+    from src.utils import iter_real_files, read_json, write_json
+    from src.wm_clean import IMAGE_EXTS, clean_generated_image
 
     cfg = load_config(args.config)
     totals: dict[str, int] = {}
     for asin in _asins(args):
         adir = Path(cfg.asin_dir(asin))
         gen_dir = adir / "generated"
-        from src.utils import iter_real_files
-        from src.wm_clean import IMAGE_EXTS
-
         files = [f for f in iter_real_files(gen_dir) if f.suffix.lower() in IMAGE_EXTS]
         if not files:
             log.info("%s: no generated images (run generate first)", asin)
