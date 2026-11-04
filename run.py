@@ -165,13 +165,18 @@ def cmd_probe(args) -> int:
     """
     import yaml
 
-    from src.gemini_web import GeminiWeb, suggest_selectors
+    from src.backends import backend_name, get_driver
+    from src.gemini_web import suggest_selectors
 
     cfg = load_config(args.config)
+    if getattr(args, "backend", None):
+        cfg.data.setdefault("image", {})["backend"] = args.backend
     if getattr(args, "url", None):
-        cfg.data.setdefault("gemini", {})["url"] = args.url
+        section = "arena" if backend_name(cfg) == "arena_web" else "gemini"
+        cfg.data.setdefault(section, {})["url"] = args.url
     headless = bool(cfg.get("browser.headless", True)) and not args.headed
-    with GeminiWeb(cfg, headless=headless) as gem:
+    Driver = get_driver(cfg)
+    with Driver(cfg, headless=headless) as gem:
         reports = [gem.dump_diagnostics("probe")]
         log.info("probe: url=%s image_count=%s buttons=%d -> %s",
                  reports[0].get("url"), reports[0].get("image_count"),
@@ -244,7 +249,9 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--interactive", action="store_true",
                     help="headed: click around in the browser, press Enter between dumps")
     sp.add_argument("--url", default=None,
-                    help="page to probe (default: gemini.url from config, e.g. https://gemini.google.com/images)")
+                    help="page to probe (default: the active backend's url, e.g. https://gemini.google.com/images)")
+    sp.add_argument("--backend", default=None,
+                    help="which image backend to probe: gemini_web (default) | arena_web")
     sp.add_argument("--steps", action="store_true",
                     help="capture one tagged dump per UI action (home/attach/model picker/aspect/image)")
     return p

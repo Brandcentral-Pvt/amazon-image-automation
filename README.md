@@ -3,7 +3,9 @@
 Give it ASINs. Get back, per ASIN: scraped product data, every base image from the
 listing, 8 Amazon-compliant generated images, organised in folders and tracked in a sheet.
 
-**No paid APIs required** — Amazon and Gemini are both driven through a real browser.
+**No paid APIs required** — Amazon and the image model (Gemini web **or Arena.ai Image
+Arena**) are both driven through a real browser. Pick the engine with
+`image.backend: gemini_web | arena_web` in `config.yaml`.
 
 ```
 ASIN list ──► Playwright ──► product.json + base_images/ ──► prompt builder (8 slots)
@@ -229,7 +231,9 @@ src/downloader.py       base image download, validation, dedupe
 src/prompts.py          slot loader + prompt builder (compliance baked in)
 src/prompt_gallery.py   gallery sourcing: local model pick + heuristic adapt + cache
 src/nim_client.py       NVIDIA NIM client (optional via nim.enabled + NIM_API_KEY; local heuristic fallback otherwise)
-src/gemini_web.py       Gemini web driver: upload, prompt, wait, auto-download
+src/backends.py         image-backend selection (image.backend: gemini_web | arena_web)
+src/gemini_web.py       Gemini web driver (/images): upload, prompt, wait, auto-download
+src/arena_web.py        Arena.ai Image Arena driver (/image): battle-pick, panel fit, upload
 src/pipeline.py         orchestration, manifest, resume, per-ASIN reports
 src/wm_worker.py        watermark remover worker (near-match fallback included)
 src/wm_clean.py         clean/sweep wrappers for generated images

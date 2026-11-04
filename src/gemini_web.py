@@ -235,6 +235,43 @@ def suggest_selectors(report: dict[str, Any], ratio: str = "3:4") -> dict[str, l
 DEFAULT_GEMINI_URL = "https://gemini.google.com/images"
 
 
+def dump_page_diagnostics(page, tag: str = "probe",
+                          out_dir: Path | None = None) -> dict[str, Any]:
+    """Save DOM + screenshot + button/file-input/contenteditable inventory for any
+    page (shared by the Gemini and Arena drivers). Returns the report dict."""
+    stamp = dt.datetime.now().strftime("%Y%m%d_%H%M%S")
+    out = ensure_dir(out_dir or (PROJECT_ROOT / "logs" / "gemini"))
+    html_path = out / f"{tag}_{stamp}.html"
+    shot_path = out / f"{tag}_{stamp}.png"
+    json_path = out / f"{tag}_{stamp}.json"
+
+    report: dict[str, Any] = {"tag": tag, "at": dt.datetime.now().isoformat(timespec="seconds")}
+    try:
+        report["url"] = page.url
+        report["title"] = page.title()
+        report["file_inputs"] = page.evaluate(JS_FILE_INPUTS)
+        report["buttons"] = page.evaluate(JS_BUTTONS)
+        report["contenteditables"] = page.evaluate(JS_CONTENTEDITABLES)
+        report["upload_previews"] = page.evaluate(JS_UPLOAD_PREVIEWS)
+        report["image_count"] = page.evaluate(JS_COUNT_IMAGES)
+        frames = getattr(page, "frames", None) or [page.main_frame]
+        report["frames"] = [f.url for f in frames]
+    except Exception as exc:  # noqa: BLE001
+        report["error"] = str(exc)
+    try:
+        html_path.write_text(page.content(), encoding="utf-8")
+        page.screenshot(path=str(shot_path), full_page=True)
+    except Exception as exc:  # noqa: BLE001
+        log.debug("diagnostics capture issue: %s", exc)
+
+    report["json"] = str(json_path)
+    report["html"] = str(html_path)
+    report["screenshot"] = str(shot_path)
+    write_json(json_path, report)
+    log.info("diagnostics saved -> %s", json_path)
+    return report
+
+
 class GeminiWeb:
     def __init__(self, cfg: Config, headless: bool = False):
         self.cfg = cfg
@@ -1060,36 +1097,7 @@ class GeminiWeb:
     # ------------------------------------------------------------- diagnostics
     def dump_diagnostics(self, tag: str = "probe") -> dict[str, Any]:
         """Save DOM + screenshot + button inventory. Share these to fix selectors."""
-        stamp = dt.datetime.now().strftime("%Y%m%d_%H%M%S")
-        out = ensure_dir(PROJECT_ROOT / "logs" / "gemini")
-        html_path = out / f"{tag}_{stamp}.html"
-        shot_path = out / f"{tag}_{stamp}.png"
-        json_path = out / f"{tag}_{stamp}.json"
-
-        report: dict[str, Any] = {"tag": tag, "at": dt.datetime.now().isoformat(timespec="seconds")}
-        try:
-            report["url"] = self.page.url
-            report["title"] = self.page.title()
-            report["file_inputs"] = self.page.evaluate(JS_FILE_INPUTS)
-            report["buttons"] = self.page.evaluate(JS_BUTTONS)
-            report["contenteditables"] = self.page.evaluate(JS_CONTENTEDITABLES)
-            report["upload_previews"] = self.page.evaluate(JS_UPLOAD_PREVIEWS)
-            report["image_count"] = self.page.evaluate(JS_COUNT_IMAGES)
-            report["frames"] = [f.url for f in self._frames()]
-        except Exception as exc:  # noqa: BLE001
-            report["error"] = str(exc)
-        try:
-            html_path.write_text(self.page.content(), encoding="utf-8")
-            self.page.screenshot(path=str(shot_path), full_page=True)
-        except Exception as exc:  # noqa: BLE001
-            log.debug("diagnostics capture issue: %s", exc)
-
-        report["json"] = str(json_path)
-        report["html"] = str(html_path)
-        report["screenshot"] = str(shot_path)
-        write_json(json_path, report)
-        log.info("diagnostics saved -> %s", json_path)
-        return report
+        return dump_page_diagnostics(self.page, tag, out_dir=PROJECT_ROOT / "logs" / "gemini")
 
     # ------------------------------------------------------------- step capture
     # Action-by-action capture for a (new) Gemini page such as /images:

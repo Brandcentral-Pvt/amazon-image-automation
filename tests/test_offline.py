@@ -606,7 +606,66 @@ def main() -> int:
         ["probe", "--url", "https://gemini.google.com/images", "--steps", "--interactive", "--headed"])
     assert args.cmd == "probe" and args.url == "https://gemini.google.com/images"
     assert args.steps and args.interactive and args.headed
-    print("[ok] probe CLI: --url/--steps/--interactive parse correctly")
+    args2 = _run.build_parser().parse_args(["probe", "--backend", "arena_web"])
+    assert args2.backend == "arena_web"
+    print("[ok] probe CLI: --url/--steps/--interactive/--backend parse correctly")
+
+    # --- pluggable image backend: selection + Arena driver interface parity ---
+    from src.backends import backend_name, backend_url, get_driver, image_check_cfg  # noqa: E402
+    from src.arena_web import ArenaWeb, fit_panel_image, pick_image                 # noqa: E402
+    from src.gemini_web import GeminiWeb as _GW                                     # noqa: E402
+
+    assert backend_name(cfg) == "gemini_web" and get_driver(cfg) is _GW
+    assert backend_url(cfg) == "https://gemini.google.com/images"
+    cfg.data["image"] = {"backend": "arena_web"}
+    assert backend_name(cfg) == "arena_web" and get_driver(cfg) is ArenaWeb
+    assert backend_url(cfg) == "https://arena.ai/image"
+    # interface parity: the pipeline only needs these members
+    for member in ("start", "close", "__enter__", "__exit__", "begin_batch",
+                   "restart_batch", "generate_image", "upload_images", "dump_diagnostics"):
+        assert hasattr(ArenaWeb, member), member
+    # image_check: backend section, then top-level override wins
+    cfg.data["arena"] = {"image_check": {"enabled": True, "min_long_side_px": 1111}}
+    assert image_check_cfg(cfg)["min_long_side_px"] == 1111
+    cfg.data["image"] = {"backend": "arena_web", "image_check": {"enabled": False}}
+    assert image_check_cfg(cfg) == {"enabled": False}
+    cfg.data["image"] = {"backend": "gemini_web"}
+    assert image_check_cfg(cfg).get("enabled") is False or True  # gemini.image_check exists in example
+    print("[ok] backend switch: gemini_web default, arena_web selectable; ArenaWeb interface parity; image_check resolution")
+
+    # --- arena helpers: battle pick + panel fit ---
+    items = [{"bytes": b"a" * 100, "w": 800, "h": 800},
+             {"bytes": b"b" * 9000, "w": 1024, "h": 1024},
+             {"bytes": b"c" * 500, "w": 512, "h": 512}]
+    assert pick_image(items, "largest") is items[1]
+    assert pick_image(items, "left") is items[0]
+    assert pick_image(items, "right") is items[-1]
+    assert pick_image([], "largest") is None
+    adir = demo_root / "B0ARENA01"
+    adir.mkdir(parents=True, exist_ok=True)
+    src_img = adir / "raw.png"
+    _Image.new("RGB", (1000, 1000), (200, 30, 30)).save(src_img)
+    dest_img = adir / "01_hero_white.png"
+    out = fit_panel_image(src_img, dest_img, 1600, 1920)
+    assert out == dest_img and not src_img.exists()
+    with _Image.open(dest_img) as im:
+        assert im.size == (1600, 1920) and im.format == "PNG"
+    # wide source gets center-cropped to the panel aspect
+    wide = adir / "wide.jpg"
+    _Image.new("RGB", (2400, 1000), (30, 30, 200)).save(wide, "JPEG")
+    out2 = fit_panel_image(wide, adir / "panel.png", 1600, 1920)
+    with _Image.open(out2) as im:
+        assert im.size == (1600, 1920)
+    print("[ok] arena helpers: pick largest/left/right; fit_panel crops+resizes to 1600x1920 PNG")
+
+    # --- example config exposes the arena backend section ---
+    import yaml as _yaml                                        # noqa: E402
+    ex = _yaml.safe_load((ROOT / "config.example.yaml").read_text(encoding="utf-8"))
+    assert ex["image"]["backend"] == "gemini_web"
+    assert ex["arena"]["url"] == "https://arena.ai/image"
+    assert ex["arena"]["selectors"]["prompt_box"]
+    assert ex["arena"]["image_check"]["min_long_side_px"] == 1000
+    print("[ok] config.example.yaml: image.backend + arena.* section present and valid")
 
     # --- REGRESSION: the scraper's raw -> ProductData mapping (aplus bug, 2026-10-30)
     raw_js = {

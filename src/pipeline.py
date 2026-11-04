@@ -205,7 +205,9 @@ class Pipeline:
                     # final gate: the cleaned file must still decode and satisfy the
                     # image spec (portrait, aspect, >= min long side) - otherwise the
                     # slot is NOT ok and the retry loop regenerates it
-                    vcheck = self.cfg.get("gemini.image_check", {}) or {}
+                    from .backends import image_check_cfg
+
+                    vcheck = image_check_cfg(self.cfg)
                     if vcheck.get("enabled", True):
                         vres = verify_generated_image(
                             saved,
