@@ -63,7 +63,11 @@ JS_INSPECT = r"""
       multiple: input ? Boolean(el.multiple) : false,
       contenteditable: el.getAttribute('contenteditable') === 'true',
       disabled: Boolean(el.disabled),
+      ariaDisabled: el.getAttribute('aria-disabled') === 'true',
       inForm: Boolean(el.closest('form')),
+      isActiveElement: el === document.activeElement,
+      placeholder: input || tag === 'textarea' ? safe(el.getAttribute('placeholder')) : '',
+      uploadStatus: /uploading|processing/i.test(el.getAttribute('aria-label') || '') ? 'pending' : '',
       inAssistantReply: Boolean(el.closest('[data-message-author-role="assistant"]')),
       textHint: (!isImage && /upload|attach|add|send|download|image|file|photo|new chat/i.test(relevant))
         ? safe((el.innerText || '').replace(/\\s+/g, ' '), 48) : '',
@@ -77,30 +81,56 @@ STAGES = [
     ("composer", "Leave the ChatGPT project open. Do not type anything yet."),
     ("attachment_menu", "Manually click the plus/attachment button and leave its menu open."),
     ("upload_dialog", "Manually select Upload files. Cancel the OS file picker if it opens, then leave ChatGPT visible."),
-    ("prompt_ready", "Optionally attach a safe test image and enter a harmless draft prompt. Do NOT send it for this stage."),
-    ("response_controls", "Optionally send a harmless test request yourself, then open any image you already have. No action is performed by the probe."),
+    ("prompt_ready", "Wait until all test-image upload indicators disappear. Type a harmless draft prompt without sending it, then capture."),
+    ("response_controls", "Optionally submit the draft yourself, wait until the response is fully finished, and open the resulting image. Then capture."),
 ]
 
 def _candidate_score(element: dict, role: str) -> int:
-    s = " ".join(str(element.get(k, "")) for k in ("selector", "role", "testid", "aria", "textHint")).lower()
+    """Classify by element semantics, never by coincidental words alone."""
+    tag = str(element.get("tag", "")).lower()
+    elem_role = str(element.get("role", "")).lower()
+    aria = str(element.get("aria", "")).lower()
+    testid = str(element.get("testid", "")).lower()
+    hint = str(element.get("textHint", "")).lower()
+    selector = str(element.get("selector", "")).lower()
+    button = tag == "button" or elem_role == "button"
     if role == "composer":
-        return 100 if element.get("contenteditable") and element.get("inForm") else (70 if element.get("contenteditable") else (60 if element.get("tag") == "textarea" else 0))
+        if not element.get("contenteditable") and not (tag == "textarea" and element.get("type") != "hidden"):
+            return 0
+        if "new chat" in aria or "new chat" in hint:
+            return 0
+        return 120 if element.get("inForm") else 85
     if role == "file_input":
-        return 100 if element.get("tag") == "input" and element.get("type") == "file" else 0
-    words = {
-        "attach_button": ("composer-plus", "attach", "add files", "add photos"),
-        "upload_menu": ("upload", "photos and files", "from computer"),
-        "send_button": ("send-button", "send prompt", "send message"),
-        "download_button": ("download", "save image"),
-        "new_chat_button": ("new chat",),
-    }.get(role, ())
-    score = 0
-    for w in words:
-        if w in s:
-            score += 30
-    if role.endswith("button") and element.get("tag") != "button":
-        score -= 10
-    return score
+        return 120 if tag == "input" and str(element.get("type", "")).lower() == "file" else 0
+    if role == "attach_button":
+        if not button:
+            return 0
+        if "composer-plus" in testid or "add files and more" in aria:
+            return 130
+        return 90 if any(word in aria + " " + testid for word in ("attach", "add photos", "upload")) else 0
+    if role == "upload_menu":
+        if not (button or elem_role == "menuitem"):
+            return 0
+        if "uploading" in aria or "uploading" in hint:
+            return 0
+        return 120 if any(word in aria + " " + hint + " " + testid for word in ("upload files", "upload photos", "from computer", "photos and files")) else 0
+    if role == "send_button":
+        if not button:
+            return 0
+        if "send-button" in testid or "send prompt" in aria or "send message" in aria:
+            return 130
+        if str(element.get("type", "")).lower() == "submit" and element.get("inForm"):
+            return 80
+        return 0
+    if role == "download_button":
+        if not button:
+            return 0
+        return 120 if "download" in aria + " " + testid + " " + hint else 0
+    if role == "new_chat_button":
+        if not button:
+            return 0
+        return 100 if "new chat" in aria + " " + testid else 0
+    return 0
 
 
 def _recommend(elements: list[dict]) -> dict:
@@ -168,7 +198,8 @@ def run_chatgpt_probe(cfg, interactive: bool = False) -> int:
                 path = out / f"{stage}.json"
                 path.write_text(json.dumps(snap, indent=2, ensure_ascii=False), encoding="utf-8")
                 summary = {k: [e["selector"] for e in v[:3]] for k, v in snap.get("candidates", {}).items() if v}
-                print(json.dumps(summary, indent=2))
+                pending = [el.get("aria", "") for el in snap.get("elements", []) if el.get("uploadStatus") == "pending"]
+                print(json.dumps({"candidates": summary, "pending_upload_count": len(pending)}, indent=2))
         finally:
             if browser is None:
                 ctx.close()
