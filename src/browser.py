@@ -271,6 +271,56 @@ def ensure_gemini_profile(cfg: Config) -> tuple[Path, str] | None:
     return dest, folder
 
 
+def ensure_chatgpt_profile(cfg: Config) -> tuple[Path, str] | None:
+    """Prepare an isolated copy of the user's OWN signed-in Chrome profile for ChatGPT.
+
+    Returns (profile_dir, profile_folder), or None when chatgpt.use_own_chrome_profile
+    is disabled. Scraping keeps using browser.user_data_dir - this touches nothing there.
+    """
+    if not cfg.get("chatgpt.use_own_chrome_profile", False):
+        return None
+
+    dest = cfg.resolve(cfg.get("chatgpt.user_data_dir", ".browser-profile-chatgpt"))
+    recopy = bool(cfg.get("chatgpt.recopy_chrome_profile", False))
+
+    override = cfg.get("chatgpt.chrome_user_data_dir") or cfg.get("browser.chrome_user_data_dir")
+    user_data = Path(override).expanduser() if override else chrome_user_data_dir()
+    if not user_data or not Path(user_data).exists():
+        raise RuntimeError(
+            "Could not find a Chrome 'User Data' folder. Set chatgpt.chrome_user_data_dir "
+            "in config.yaml, or set chatgpt.use_own_chrome_profile to false."
+        )
+    user_data = Path(user_data)
+
+    want = str(cfg.get("chatgpt.chrome_profile_name", "") or "Default")
+    folder = find_profile_by_name(user_data, want)
+    if folder is None:
+        available = ", ".join(
+            f"{p} ({profile_display_name(user_data, p)!r})" for p in list_profiles(user_data)
+        )
+        raise RuntimeError(
+            f"Chrome profile '{want}' not found in {user_data}. Available: {available}. "
+            "Set chatgpt.chrome_profile_name to the name shown in Chrome's profile picker."
+        )
+
+    src = user_data / folder
+    cookies_missing = _cookie_files_missing(src, dest / folder)
+    if dest.exists() and recopy is False and not cookies_missing:
+        log.debug("using existing copied Chrome profile for ChatGPT: %s", dest)
+        return dest, folder
+    if cookies_missing:
+        recopy = True   # self-heal: a previous copy missed the session cookies
+
+    log.info("copying own Chrome profile '%s' (%s) for ChatGPT from %s", want, folder, user_data)
+    copy_profile(user_data, folder, dest)
+    if _cookie_files_missing(src, dest / folder):
+        log.warning(
+            "cookie files could not be copied (Chrome is probably running). Close ALL Chrome "
+            "windows and run again, or log in once with: python run.py chatgpt-login"
+        )
+    return dest, folder
+
+
 # --------------------------------------------------------------------- launching
 def launch_context(pw, cfg: Config, headless: bool = True):
     """Shared persistent context: Amazon scraping + Gemini driving use the same one."""
@@ -365,6 +415,56 @@ def launch_gemini_context(pw, cfg: Config, headless: bool = True):
         kwargs["channel"] = channel
 
     log.debug("launching Gemini on own Chrome profile %s (%s) headless=%s",
+              folder, dest.name, kwargs["headless"])
+    ctx = pw.chromium.launch_persistent_context(str(dest), **kwargs)
+    ctx.add_init_script(
+        "Object.defineProperty(navigator,'webdriver',{get:()=>undefined});"
+        "window.chrome = window.chrome || { runtime: {} };"
+    )
+    return ctx, None
+
+
+def launch_chatgpt_context(pw, cfg: Config, headless: bool = True):
+    """Playwright context for ChatGPT that runs on the user's OWN Chrome profile.
+
+    Copies the signed-in profile (chatgpt.chrome_profile_name, e.g. 'brandcentral') into an
+    isolated dir (chatgpt.user_data_dir) so normal Chrome can stay open during
+    automation. Real Chrome is used for the copy - bundled Chromium cannot read
+    Chrome's encrypted cookies. When the feature is disabled this falls back to the
+    shared scraping context, exactly like before.
+    """
+    prepared = ensure_chatgpt_profile(cfg)
+    if prepared is None:
+        from .scraper import launch_context  # legacy shared-context path
+        return launch_context(pw, cfg, headless=headless)
+    dest, folder = prepared
+
+    args = [
+        "--disable-blink-features=AutomationControlled",
+        "--no-sandbox",
+        "--disable-features=Translate,OptimizationHints,MediaRouter",
+        f"--profile-directory={folder}",
+    ]
+    args += list(cfg.get("browser.extra_args", []) or [])
+    channel = cfg.get("chatgpt.chrome_channel") or "chrome"
+    if cfg.get("browser.headless_new", True) and headless and channel == "chrome":
+        args.append("--headless=new")
+
+    kwargs: dict[str, Any] = {
+        "headless": headless and not (channel == "chrome" and not cfg.get("browser.headless_new", True)),
+        "viewport": cfg.get("browser.viewport", {"width": 1440, "height": 900}),
+        "locale": cfg.get("browser.locale", "en-US"),
+        "args": args,
+        "ignore_default_args": ["--enable-automation"],
+    }
+    if cfg.get("browser.user_agent"):
+        kwargs["user_agent"] = cfg.get("browser.user_agent")
+    if cfg.get("browser.proxy"):
+        kwargs["proxy"] = {"server": cfg.get("browser.proxy")}
+    if channel:
+        kwargs["channel"] = channel
+
+    log.debug("launching ChatGPT on own Chrome profile %s (%s) headless=%s",
               folder, dest.name, kwargs["headless"])
     ctx = pw.chromium.launch_persistent_context(str(dest), **kwargs)
     ctx.add_init_script(

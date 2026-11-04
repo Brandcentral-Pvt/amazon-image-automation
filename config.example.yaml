@@ -161,13 +161,14 @@ watermark:
 # Uses persistent Chrome profile for login session persistence
 chatgpt:
   enabled: true
-  url: "https://chatgpt.com/g/g-p-6aeafd8cf6148191b9034dbaaf247ba1"
-  # Chrome profile for persistent login
+  # Specific conversation URL for image generation
+  url: "https://chatgpt.com/g/g-p-6aeafd8cf6148191b9034dbaaf247ba1-image-gen-auto/c/6aeafe29-7b14-83ec-9492-a9f1690a4d46"
+  # Chrome profile for persistent login - use existing logged-in profile
   use_own_chrome_profile: true
-  chrome_profile_name: "Chirag"
+  chrome_profile_name: "brandcentral"  # Profile name where ChatGPT is already logged in
   chrome_channel: "chrome"
   user_data_dir: ".browser-profile-chatgpt"
-  chrome_user_data_dir: ""
+  chrome_user_data_dir: ""  # Leave empty to auto-detect, or set full path to Chrome user data dir
   recopy_chrome_profile: false
   max_reference_images: 10
   upload_wait_sec: 10
@@ -181,7 +182,7 @@ chatgpt:
     attach_buttons:
       - 'button[aria-label*="Attach" i]'
       - 'button[aria-label*="Upload" i]'
-      - '[data-test-id*="attachment" i]'
+      - '[data-testid*="attachment" i]'
     upload_menu_items:
       - 'text="Upload from computer"'
       - 'text="Upload file"'

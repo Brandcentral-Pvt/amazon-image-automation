@@ -156,10 +156,10 @@ class ChatGPTWeb:
 
     def start(self) -> None:
         from playwright.sync_api import sync_playwright
-        from .browser import launch_gemini_context  # reuse Chrome launcher
+        from .browser import launch_chatgpt_context  # use ChatGPT-specific launcher
 
         self._pw = sync_playwright().start()
-        self._ctx, _ = launch_gemini_context(self._pw, self.cfg, headless=self.headless)
+        self._ctx, _ = launch_chatgpt_context(self._pw, self.cfg, headless=self.headless)
         self.page = self._ctx.pages[0] if self._ctx.pages else self._ctx.new_page()
 
         # Intercept file chooser
