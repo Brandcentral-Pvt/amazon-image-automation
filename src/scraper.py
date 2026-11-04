@@ -28,6 +28,20 @@ _IMG_RE = re.compile(
     re.I,
 )
 
+_ASIN_RE = re.compile(r"^[A-Z0-9]{10}$")
+
+
+def validate_asin(asin: str) -> str:
+    """Normalise and validate a 10-character ASIN. Raises ValueError if invalid."""
+    if not asin or not asin.strip():
+        raise ValueError("ASIN must not be empty")
+    cleaned = asin.strip().upper()
+    if not _ASIN_RE.match(cleaned):
+        raise ValueError(
+            f"invalid ASIN: {asin!r} (must be 10 alphanumeric characters, e.g. B0DEMO1234)"
+        )
+    return cleaned
+
 
 def hires_candidates(url: str) -> list[str]:
     """Turn a thumbnail URL into an ordered list of hi-res candidates."""
@@ -229,7 +243,17 @@ def scrape_many(asins: list[str], cfg: Config) -> dict[str, ProductData]:
     with sync_playwright() as pw:
         ctx, _browser = launch_context(pw, cfg, headless=cfg.get("browser.headless", True))
         page = ctx.new_page()
-        for idx, asin in enumerate(asins, 1):
+        for idx, raw_asin in enumerate(asins, 1):
+            try:
+                asin = validate_asin(raw_asin)
+            except ValueError as exc:
+                log.error("invalid ASIN %r: %s", raw_asin, exc)
+                results[raw_asin] = ProductData(
+                    asin=raw_asin, scrape_status="failed", scrape_error=str(exc)
+                )
+                if idx < len(asins):
+                    human_delay(cfg.get("amazon.delay_between_asins", [4, 9]), "between asins")
+                continue
             log.info("[%d/%d] %s", idx, len(asins), asin)
             try:
                 results[asin] = scrape_asin(page, asin, cfg)
