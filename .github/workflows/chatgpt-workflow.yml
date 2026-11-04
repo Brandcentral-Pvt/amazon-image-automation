@@ -4,10 +4,13 @@ on:
   pull_request:
     paths:
       - 'src/chatgpt_web.py'
+      - 'src/chatgpt_probe.py'
+      - 'run.py'
       - 'src/browser.py'
       - 'src/config.py'
       - 'src/pipeline.py'
       - 'tests/test_chatgpt_workflow.py'
+      - 'tests/test_chatgpt_probe.py'
       - 'requirements.txt'
       - '.github/workflows/chatgpt-workflow.yml'
   workflow_dispatch:
@@ -23,6 +26,6 @@ jobs:
       - name: Install runtime dependencies
         run: pip install -r requirements.txt
       - name: Compile modified modules
-        run: python -m py_compile src/chatgpt_web.py src/browser.py src/pipeline.py src/config.py
+        run: python -m py_compile src/chatgpt_web.py src/chatgpt_probe.py src/browser.py src/pipeline.py src/config.py run.py
       - name: Test ChatGPT validation
-        run: python -m unittest tests/test_chatgpt_workflow.py -v
+        run: python -m unittest discover -s tests -p 'test_chatgpt_*.py' -v
