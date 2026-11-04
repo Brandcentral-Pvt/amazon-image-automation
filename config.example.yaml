@@ -167,6 +167,7 @@ chatgpt:
   use_own_chrome_profile: true
   chrome_profile_name: "Profile 4"  # Profile 4 in Chrome User Data folder (easysell.gpt@gmail.com)
   chrome_channel: "chrome"
+  chrome_executable_path: "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe"  # Full path to Chrome executable
   user_data_dir: ".browser-profile-chatgpt"
   chrome_user_data_dir: "C:\\Users\\Admin\\AppData\\Local\\Google\\Chrome\\User Data"  # Full path to Chrome User Data
   recopy_chrome_profile: false
