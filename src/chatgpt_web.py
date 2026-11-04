@@ -213,6 +213,34 @@ class ChatGPTWeb:
     def _sel(self, key: str, default: str = "") -> str:
         return self.cfg.get(f"chatgpt.selectors.{key}", default) or default
 
+    def _prompt_candidates(self) -> list[str]:
+        configured = self._sel("prompt_box", "")
+        return list(dict.fromkeys(filter(None, [
+            configured,
+            '#prompt-textarea[contenteditable="true"]',
+            '[data-testid="prompt-textarea"][contenteditable="true"]',
+            '[data-testid="prompt-textarea"] [contenteditable="true"]',
+            'div.ProseMirror[contenteditable="true"]',
+            'form [contenteditable="true"][role="textbox"]',
+            'form textarea',
+        ])))
+
+    def _prompt_box(self, timeout_sec: float = 20):
+        """Find the visible composer, allowing the project UI to hydrate."""
+        deadline = time.monotonic() + timeout_sec
+        while time.monotonic() < deadline:
+            for selector in self._prompt_candidates():
+                try:
+                    elements = self.page.locator(selector)
+                    for i in range(elements.count()):
+                        element = elements.nth(i)
+                        if element.is_visible(timeout=300) and element.is_enabled(timeout=300):
+                            return element
+                except Exception:
+                    continue
+            self.page.wait_for_timeout(400)
+        return None
+
     def _frames(self):
         try:
             return self.page.frames or [self.page.main_frame]
@@ -285,16 +313,22 @@ class ChatGPTWeb:
                 pass
 
     def _assert_logged_in(self) -> None:
-        box = self._sel("prompt_box")
+        if self._prompt_box(timeout_sec=25) is not None:
+            log.info("ChatGPT composer ready at %s", self.page.url)
+            return
+        url = self.page.url or ""
         try:
-            if not self.page.locator(box).first.is_visible(timeout=15000):
-                raise ChatGPTError("prompt box not visible - not logged in")
-        except ChatGPTError:
-            raise
-        except Exception as exc:
-            raise ChatGPTError(
-                "ChatGPT not logged in. Run: python run.py chatgpt-login --headed"
-            ) from exc
+            diag = self.dump_diagnostics("composer_missing")
+            detail = f" | screenshot: {diag.get('screenshot')} | json: {diag.get('json')}"
+        except Exception:
+            detail = ""
+        if "login" in url or "auth" in url:
+            raise ChatGPTError("ChatGPT appears to require sign-in" + detail)
+        raise ChatGPTError(
+            "ChatGPT project opened but no editable composer was found. "
+            "Likely a changed selector, a loading/blocked interface, or an account restriction."
+            + detail
+        )
 
     # ------------------------------------------------------------- upload
     def _attach_candidates(self) -> list[str]:
@@ -303,6 +337,8 @@ class ChatGPTWeb:
             'button[aria-label*="Attach" i]',
             'button[aria-label*="Upload" i]',
             'button[aria-label*="Add" i]',
+            'button[data-testid="composer-plus-btn"]',
+            'button[aria-label*="Add photos" i]',
             '[data-testid*="attachment" i]',
             '[data-testid*="upload" i]',
             'button:has-text("Attach")',
@@ -316,6 +352,8 @@ class ChatGPTWeb:
             'text="Upload from computer"',
             'text="Upload file"',
             '[role="menuitem"]:has-text("Upload")',
+            '[role="menuitem"]:has-text("Photos")',
+            'text="Upload photos and files"',
             'button:has-text("Upload from computer")',
         ]
         return [s for s in [*configured, *defaults] if s]
@@ -392,15 +430,37 @@ class ChatGPTWeb:
         self._baseline_blocks = int(self.page.evaluate(JS_COUNT_BLOCKS))
         self._baseline_users = int(self.page.locator('[data-message-author-role="user"]').count())
         self._response_block_index = self._baseline_blocks
-        box = self.page.locator(self._sel("prompt_box")).first
-        box.click(timeout=15000)
+        box = self._prompt_box(timeout_sec=15)
+        if box is None:
+            raise ChatGPTError("prompt composer disappeared before submission")
+        box.click(timeout=5000)
         box.fill(prompt, timeout=15000)
-        actual = (box.inner_text(timeout=5000) or "").strip()
-        if actual != prompt.strip():
+        actual = (box.input_value() if (box.evaluate("(e) => e.tagName.toLowerCase()") == "textarea")
+                  else box.inner_text(timeout=5000)).strip()
+        if " ".join(actual.split()) != " ".join(prompt.strip().split()):
             raise ChatGPTError("prompt composer contents did not match requested prompt")
-        btn = self.page.locator(self._sel("send_button", 'button[data-testid="send-button"]')).first
-        if not btn.is_visible(timeout=5000) or not btn.is_enabled(timeout=5000):
-            raise ChatGPTError("send button is not ready")
+        btn = None
+        candidates = [
+            self._sel("send_button", ""),
+            'button[data-testid="send-button"]',
+            'button[aria-label="Send prompt"]',
+            'button[aria-label="Send message"]',
+            'form button[type="submit"]',
+        ]
+        for selector in dict.fromkeys(filter(None, candidates)):
+            try:
+                elements = self.page.locator(selector)
+                for i in range(elements.count()):
+                    candidate = elements.nth(i)
+                    if candidate.is_visible(timeout=300) and candidate.is_enabled(timeout=300):
+                        btn = candidate
+                        break
+                if btn is not None:
+                    break
+            except Exception:
+                continue
+        if btn is None:
+            raise ChatGPTError("ChatGPT send button not available after filling prompt")
         btn.click(timeout=5000)
         deadline = time.monotonic() + 15
         while time.monotonic() < deadline:
