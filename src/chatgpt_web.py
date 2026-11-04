@@ -217,6 +217,8 @@ class ChatGPTWeb:
         configured = self._sel("prompt_box", "")
         return list(dict.fromkeys(filter(None, [
             configured,
+            'div[aria-label="Ask ChatGPT"][contenteditable="true"]',
+            'div[aria-label="Describe edits"][contenteditable="true"]',
             '#prompt-textarea[contenteditable="true"]',
             '[data-testid="prompt-textarea"][contenteditable="true"]',
             '[data-testid="prompt-textarea"] [contenteditable="true"]',
@@ -250,7 +252,13 @@ class ChatGPTWeb:
 
     def find_file_input(self):
         for frame in self._frames():
-            for sel in (self._sel("file_input", 'input[type="file"]'), 'input[type="file"]', 'input[accept*="image"]'):
+            for sel in (
+                'input[aria-label="Attach photos or videos"][type="file"]',
+                'input[aria-label="Attach photos"][type="file"]',
+                self._sel("file_input", 'input[type="file"]'),
+                'input[type="file"]',
+                'input[accept*="image"]',
+            ):
                 try:
                     loc = frame.locator(sel)
                     if loc.count() > 0:
@@ -335,6 +343,7 @@ class ChatGPTWeb:
     def _attach_candidates(self) -> list[str]:
         configured = self.cfg.get("chatgpt.selectors.attach_buttons") or []
         defaults = [
+            'button[aria-label="Add files and more"]',
             'button[aria-label*="Attach" i]',
             'button[aria-label*="Upload" i]',
             'button[aria-label*="Add" i]',
@@ -351,6 +360,8 @@ class ChatGPTWeb:
     def _menu_item_candidates(self) -> list[str]:
         configured = self.cfg.get("chatgpt.selectors.upload_menu_items") or []
         defaults = [
+            'button:has-text("Upload files")',
+            '[role="menuitem"]:has-text("Upload files")',
             'text="Upload from computer"',
             'text="Upload file"',
             '[role="menuitem"]:has-text("Upload")',
@@ -445,6 +456,7 @@ class ChatGPTWeb:
         btn = None
         candidates = [
             self._sel("send_button", ""),
+            'button[aria-label="Send"]',
             'button[data-testid="send-button"]',
             'button[aria-label="Send prompt"]',
             'button[aria-label="Send message"]',
@@ -764,7 +776,7 @@ class ChatGPTWeb:
         # A new batch must begin at a clean composer rather than an old reply.
         previous = self.page.locator('[data-message-author-role="assistant"]').count()
         if previous:
-            selector = self._sel("new_chat_button", 'button[aria-label*="New chat" i], a[aria-label*="New chat" i]')
+            selector = self._sel("new_chat_button", 'button[aria-label="New chat"], button[aria-label*="New chat" i], a[aria-label*="New chat" i]')
             button = self.page.locator(selector).first
             if button.count() == 0 or not button.is_visible(timeout=2000):
                 raise ChatGPTError("could not create a fresh ChatGPT conversation")
