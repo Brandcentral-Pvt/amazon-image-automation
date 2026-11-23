@@ -1,5 +1,5 @@
 generation:
-  provider: chatgpt   # Choose 'gemini' to retain existing generator
+  provider: gemini   # Default. Change to chatgpt only when explicitly needed
 
 # =====================================================================
 #  Amazon ASIN -> 8-image compliant bundle  |  master configuration
@@ -60,8 +60,9 @@ gemini:
   url: "https://gemini.google.com/images"
   # ---- use your OWN signed-in Chrome profile (no separate sign-in screen, ever) ----
   use_own_chrome_profile: true
-  chrome_profile_name: "Chirag"      # name shown in Chrome's profile picker
-  chrome_channel: "chrome"           # real Chrome is required to read Chrome cookies
+  chrome_profile_name: "Chirag"      # Existing Gemini Chrome display name; can also be "Profile N"
+  chrome_channel: "chrome"           # real Chrome uses the selected profile copy
+  chrome_executable_path: ""         # blank selects installed Chrome using Playwright channel
   user_data_dir: ".browser-profile-gemini"   # isolated copy (scraping keeps .browser-profile)
   chrome_user_data_dir: ""           # blank = autodetect (LOCALAPPDATA\Google\Chrome\User Data)
   recopy_chrome_profile: false       # set true to refresh the copy from Chrome
