@@ -336,10 +336,24 @@ def ensure_gemini_profile(cfg: Config) -> tuple[Path, str] | None:
         )
 
     src = user_data / folder
+    marker = dest / ".profile-copy.json"
+    copy_record = {}
+    if marker.exists():
+        try:
+            copy_record = json.loads(marker.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            pass
+    # A copied profile can belong to a different account after config changes.
+    profile_matches = (
+        copy_record.get("profile") == folder
+        and Path(copy_record.get("source", "")).resolve() == src.resolve()
+    )
     cookies_missing = _cookie_files_missing(src, dest / folder)
-    if dest.exists() and recopy is False and not cookies_missing:
-        log.debug("using existing copied Chrome profile for Gemini: %s", dest)
+    if dest.exists() and not recopy and not cookies_missing and profile_matches:
+        log.debug("using verified copied Chrome profile for Gemini: %s", dest)
         return dest, folder
+    if not profile_matches:
+        log.info("Gemini profile copy is missing or targets a different account; refreshing")
     if cookies_missing:
         recopy = True   # self-heal: a previous copy missed the session cookies
 
