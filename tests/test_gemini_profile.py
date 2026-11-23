@@ -26,6 +26,7 @@ class GeminiProfileTests(unittest.TestCase):
     def test_example_defaults_to_gemini_and_named_chrome_profile(self):
         cfg = load_config(str(Path(__file__).resolve().parent.parent / "config.example.yaml"))
         self.assertEqual(cfg.get("generation.provider"), "gemini")
+        self.assertEqual(cfg.get("gemini.browser_mode"), "existing")
         self.assertTrue(cfg.get("gemini.use_own_chrome_profile"))
         self.assertEqual(cfg.get("gemini.chrome_profile_name"), "Profile 2")
         self.assertEqual(cfg.get("gemini.chrome_executable_path"), r"C:\Program Files\Google\Chrome\Application\chrome.exe")
@@ -36,7 +37,7 @@ class GeminiProfileTests(unittest.TestCase):
     def test_uses_resolved_profile_folder_not_display_name(self, ensure):
         ensure.return_value = (Path("C:/isolated-gemini"), "Profile 2")
         cfg = Config({"browser": {"viewport": {"width": 1440, "height": 900}},
-                      "gemini": {"chrome_profile_name": "Profile 2",
+                      "gemini": {"browser_mode": "isolated", "chrome_profile_name": "Profile 2",
                                  "chrome_channel": "chrome"}})
         pw = FakePlaywright()
         context, browser = launch_gemini_context(pw, cfg, headless=False)
@@ -51,7 +52,7 @@ class GeminiProfileTests(unittest.TestCase):
     @patch("src.browser.ensure_gemini_profile")
     def test_explicit_executable_is_respected(self, ensure):
         ensure.return_value = (Path("C:/isolated-gemini"), "Profile 4")
-        cfg = Config({"gemini": {"chrome_profile_name": "Profile 4",
+        cfg = Config({"gemini": {"browser_mode": "isolated", "chrome_profile_name": "Profile 4",
                                 "chrome_executable_path": "C:/Chrome/chrome.exe"}})
         pw = FakePlaywright()
         launch_gemini_context(pw, cfg)
@@ -63,7 +64,7 @@ class GeminiProfileTests(unittest.TestCase):
     def test_isolated_profile_can_be_disabled(self, ensure, launch):
         ensure.return_value = None
         launch.return_value = ("shared-context", None)
-        cfg = Config({"gemini": {"use_own_chrome_profile": False}})
+        cfg = Config({"gemini": {"browser_mode": "isolated", "use_own_chrome_profile": False}})
         self.assertEqual(launch_gemini_context(FakePlaywright(), cfg), ("shared-context", None))
         launch.assert_called_once()
 
