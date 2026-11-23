@@ -76,6 +76,20 @@ def cmd_login(args) -> int:
     return 0
 
 
+def cmd_chatgpt_login(args) -> int:
+    """One-time ChatGPT login - saves session to Chrome profile."""
+    from src.chatgpt_web import chatgpt_login
+    cfg = load_config(args.config)
+    return chatgpt_login(cfg)
+
+
+def cmd_chatgpt_probe(args) -> int:
+    """Discover ChatGPT UI controls with an observational headed browser probe."""
+    from src.chatgpt_probe import run_chatgpt_probe
+    cfg = load_config(args.config)
+    return run_chatgpt_probe(cfg, interactive=bool(args.interactive))
+
+
 def cmd_scrape(args) -> int:
     from src.pipeline import Pipeline
 
@@ -225,7 +239,7 @@ def _common(sp: argparse.ArgumentParser) -> None:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(description="Amazon ASIN -> 8-image compliant bundle (Gemini web)")
+    p = argparse.ArgumentParser(description="Amazon ASIN -> 8-image compliant bundle (Gemini/ChatGPT web)")
     _common(p)
     p.set_defaults(config=None, dry_run=False, headed=False, force=False, limit=0,
                    notes="", asins=None, asin=None)
@@ -235,6 +249,14 @@ def build_parser() -> argparse.ArgumentParser:
     _common(sp)
     sp.add_argument("--gemini", action="store_true",
                     help="log into the GEMINI own-Chrome profile copy instead of the shared one")
+
+    sp = sub.add_parser("chatgpt-login", help="one-time ChatGPT login into the persistent profile")
+    _common(sp)
+
+    sp = sub.add_parser("chatgpt-probe", help="inspect ChatGPT UI selectors in your signed-in Chrome profile")
+    _common(sp)
+    sp.add_argument("--interactive", action="store_true",
+                    help="pause for manually performed browser steps; probe does not submit prompts")
 
     for name, helptext in (("scrape", "crawl products + download base images"),
                            ("generate", "build prompts + generate 8 images"),
@@ -268,6 +290,10 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if args.cmd == "login":
             return cmd_login(args)
+        if args.cmd == "chatgpt-login":
+            return cmd_chatgpt_login(args)
+        if args.cmd == "chatgpt-probe":
+            return cmd_chatgpt_probe(args)
         if args.cmd == "scrape":
             return cmd_scrape(args)
         if args.cmd == "generate":

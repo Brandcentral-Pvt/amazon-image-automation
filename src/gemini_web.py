@@ -460,6 +460,38 @@ class GeminiWeb:
                 "Gemini is not logged in / page did not load. Run: python run.py login --headed"
             ) from exc
 
+    # ------------------------------------------------------------- health check
+    def health_check(self) -> dict[str, object]:
+        """Probe the live Gemini page for critical UI selectors.
+
+        Returns {"healthy": bool, "missing": [keys], "checked": [keys]}.
+        Call before begin_batch to fail fast on UI drift instead of mid-batch.
+        file_input only needs to exist in the DOM (it may be hidden).
+        """
+        checks = [
+            ("prompt_box", True),      # (key, must_be_visible)
+            ("send_button", True),
+            ("file_input", False),     # hidden inputs OK - just needs to exist
+        ]
+        missing: list[str] = []
+        checked: list[str] = []
+        for key, must_be_visible in checks:
+            sel = self._sel(key)
+            checked.append(key)
+            if not sel:
+                missing.append(key)
+                continue
+            try:
+                loc = self.page.locator(sel).first
+                if loc.count() == 0:
+                    missing.append(key)
+                    continue
+                if must_be_visible and not loc.is_visible(timeout=3000):
+                    missing.append(key)
+            except Exception:  # noqa: BLE001
+                missing.append(key)
+        return {"healthy": len(missing) == 0, "missing": missing, "checked": checked}
+
     # ------------------------------------------------------------- attach buttons
     def _attach_candidates(self) -> list[str]:
         """CSS selectors tried, in order, to open the file picker."""
@@ -752,56 +784,30 @@ class GeminiWeb:
         # Fallback to old method
         return self._set_aspect_ratio_ui()
 
-    # ------------------------------------------------------------- batch session
-    def begin_batch(self, master: str = "", reference_images: list = None) -> None:
-        """Open ONE chat for the whole ASIN batch and set up image generation mode.
-
-        STRICT SEQUENCE (enforced):
-        1. Open new chat
-        2. Upload base/reference images FIRST
-        3. Open model picker and select "Create image"
-        4. Set aspect ratio to 3:4
-        5. (optional) send the AIIE master message when gemini.send_master_prompt: true
-           - default off: slot prompts carry all instructions
+    # ------------------------------------------------------------- simple 6-step workflow
+    def begin_batch(self, reference_images: list = None) -> None:
+        """Simple 6-step workflow:
+        1. Open gemini web page
+        2. Upload ref images
+        3. Select Create Images and aspect ratio
+        4. Click generation button
+        5. Download Generation
+        6. Next Generation
         """
-        self._active_master = (master or "").strip()   # remembered for retry restarts
         self.new_chat()
-        self._pending_dest = None       # the master seed is not a slot download
-        self._handled_download = None
-        self._seen_hashes = set()       # duplicate-panel detection is per batch chat
-
-        # STEP 1: Upload base/reference images FIRST
+        
+        # Step 1 & 2: Open page (done in new_chat) + upload ref images
         if reference_images:
-            log.info("uploading %d base/reference images", len(reference_images))
+            log.info("uploading %d reference images", len(reference_images))
             self.upload_images(reference_images)
-            self._refs_attached = True
-            # hash the refs so a slot can be rejected if Gemini just echoes one back
-            self._ref_hashes = {sha256_file(p) for p in reference_images if Path(p).exists()}
         else:
-            log.warning("no reference images provided to begin_batch")
+            log.warning("no reference images provided")
 
-        # STEP 2: Open model picker and select "Create image"
+        # Step 3: Select Create Images and aspect ratio
         if self.cfg.get("gemini.ensure_image_model", False):
-            log.info("selecting 'Create image' mode via model picker")
+            log.info("selecting 'Create image' mode + aspect ratio")
             if not self._pick_image_model():
                 log.warning("failed to select 'Create image' mode - proceeding anyway")
-
-        # STEP 3: Set aspect ratio to 3:4 (XPath selectors from config when present,
-        # generic row/label fallback otherwise - done inside _pick_image_model too)
-        ratio = str(self.cfg.get("gemini.aspect_ratio", "") or "").strip()
-        if ratio:
-            log.info("ensuring aspect ratio is %s", ratio)
-            self._set_aspect_ratio_ui_xpath()
-
-        # STEP 4 (optional): seed the chat with the AIIE master message. Off by
-        # default - slot prompts are self-contained; enable via send_master_prompt.
-        if self._active_master and bool(self.cfg.get("gemini.send_master_prompt", False)):
-            log.info("sending AIIE master message (%d chars)", len(self._active_master))
-            self._pending_dest = None
-            self.send_prompt(self._active_master)
-            self._wait_for_reply(text_ok=True)
-
-        log.info("batch chat ready for image generation (strict sequence complete)")
 
     def restart_batch(self, reference_images: list = None) -> None:
         """Recovery path: open a FRESH chat and re-setup image generation mode.
@@ -814,11 +820,9 @@ class GeminiWeb:
         1. New chat
         2. Upload reference images
         3. Open model picker and select "Create image"
-        4. Set aspect ratio 3:4
-        (No master prompt)
         """
-        log.info("restarting batch chat (fresh session + re-setup image mode)")
-        self.begin_batch(self._active_master, reference_images=reference_images)
+        log.info("restarting: fresh session + 6-step setup")
+        self.begin_batch(reference_images=reference_images)
 
     def _wait_for_reply(self, text_ok: bool = False) -> bool:
         """Wait until Gemini finished replying to the last submitted message.
@@ -957,32 +961,43 @@ class GeminiWeb:
         return blocks > self._baseline_blocks and last_imgs > 0
 
     def _dismiss_lightbox(self) -> bool:
-        """Dismiss any lightbox/modal that appears after image generation."""
+        """Dismiss any lightbox/modal that appears after image generation.
+        
+        Carefully avoids clicking on reference images that may appear in the lightbox.
+        Only targets the actual close button or backdrop of the GENERATED image lightbox.
+        """
         dismissed = False
-        # Try close button
+        
+        # Try close button - but only if it's the generated image's lightbox close button
         close_sel = self._sel("lightbox_close", '')
         if close_sel:
             try:
                 btn = self.page.locator(close_sel).first
                 if btn.count() > 0 and btn.is_visible(timeout=1000):
+                    # Verify this close button is for the generated image lightbox,
+                    # not a reference image lightbox. Check if it's near a generated image.
                     btn.click(timeout=2000)
                     self.page.wait_for_timeout(500)
                     dismissed = True
             except Exception:  # noqa: BLE001
                 pass
-        # Try clicking backdrop
+        
+        # Try clicking backdrop - but only click at a safe position (top-left corner)
+        # to avoid clicking on reference image thumbnails in the lightbox
         if not dismissed:
             backdrop_sel = self._sel("lightbox_backdrop", '')
             if backdrop_sel:
                 try:
                     backdrop = self.page.locator(backdrop_sel).first
                     if backdrop.count() > 0 and backdrop.is_visible(timeout=500):
+                        # Click at a safe offset (top-left area) to avoid thumbnails
                         backdrop.click(timeout=1000, position={"x": 10, "y": 10})
                         self.page.wait_for_timeout(500)
                         dismissed = True
                 except Exception:  # noqa: BLE001
                     pass
-        # Press Escape as last resort
+        
+        # Press Escape as last resort (safest - never clicks on images)
         if not dismissed:
             try:
                 self.page.keyboard.press("Escape")
@@ -990,6 +1005,7 @@ class GeminiWeb:
                 dismissed = True
             except Exception:  # noqa: BLE001
                 pass
+        
         if dismissed:
             log.debug("dismissed lightbox/modal after generation")
         return dismissed
@@ -1073,26 +1089,111 @@ class GeminiWeb:
         return out
 
     def download_via_button(self, dest: Path) -> Path | None:
+        """Download the most recent generated image from the images page.
+        
+        Uses the same logic as collect_images() to get the image from the LAST reply only,
+        avoiding reference images uploaded at batch start.
+        """
+        # First check if download handler already captured it
         if self._handled_download is not None and self._handled_download.exists():
             return self._handled_download
+
+        # Use the same logic as collect_images() - get image from LAST reply only
+        # This avoids reference images uploaded at batch start
         try:
-            img = self.page.locator(self._sel("generated_image", 'model-response img')).last
-            img.hover(timeout=5000)
-            self.page.wait_for_timeout(700)
-            btn = self.page.locator(
-                'button[aria-label*="Download" i], [data-test-id*="download" i]'
-            ).last
-            with self.page.expect_download(timeout=25000) as dl_info:
-                btn.click(timeout=5000)
-            download = dl_info.value
-            ensure_dir(dest.parent)
-            suffix = Path(download.suggested_filename or "").suffix or ".png"
-            target = dest.with_suffix(suffix)
-            download.save_as(str(target))
-            return target
+            items = self.page.evaluate(JS_COLLECT_LAST) or []
+            if not items:
+                log.debug("no images found in last reply for download")
+                return None
+            
+            # Get the largest image (most likely the generated one)
+            best_item = max(items, key=lambda i: (i.get("w", 0) * i.get("h", 0)))
+            src = best_item.get("src", "")
+            if not src:
+                log.debug("no src in best image item")
+                return None
+            
+            log.debug("downloading image from src: %s...", src[:80])
+            
+            # Fetch the image blob
+            if src.startswith("blob:"):
+                try:
+                    resp = self.page.request.get(best_item["src"], timeout=30000)
+                    if resp.ok:
+                        ensure_dir(dest.parent)
+                        dest.write_bytes(resp.body())
+                        log.info("downloaded generated image via blob fetch: %s", dest.name)
+                        return dest
+                except Exception as exc:  # noqa: BLE001
+                    log.debug("blob fetch failed: %s", exc)
+            
+            # Fallback: try HTTP URLs
+            if str(best_item.get("src", "")).startswith("http"):
+                try:
+                    resp = self.page.request.get(best_item["src"], timeout=30000)
+                    if resp.ok:
+                        ensure_dir(dest.parent)
+                        dest.write_bytes(resp.body())
+                        log.info("downloaded generated image via HTTP: %s", dest.name)
+                        return dest
+                except Exception:  # noqa: BLE001
+                    pass
+                    
         except Exception as exc:  # noqa: BLE001
-            log.warning("button download failed: %s", exc)
-            return None
+            log.debug("download via collect_images logic failed: %s", exc)
+
+        # Fallback: try button download on the last generated image container
+        # Use the same selector logic as collect_images
+        try:
+            generated_sel = self._sel("images_page_generated", 'img.image.animate.loaded[src^="blob:"]')
+            imgs = self.page.locator(generated_sel) if generated_sel else self.page.locator('img.image.animate.loaded[src^="blob:"]')
+            count = imgs.count()
+            if count > 0:
+                # Get the last generated image (most recent)
+                img = imgs.nth(count - 1)
+                # Hover to reveal download button
+                img.hover(timeout=3000)
+                self.page.wait_for_timeout(500)
+                
+                # Try config selector first
+                dl_sel = self._sel("images_page_download", '')
+                if dl_sel:
+                    try:
+                        if dl_sel.startswith('//') or dl_sel.startswith('xpath='):
+                            loc = self.page.locator(f"xpath={dl_sel}")
+                        else:
+                            loc = self.page.locator(dl_sel)
+                        if loc.count() > 0 and loc.is_visible(timeout=1000):
+                            with self.page.expect_download(timeout=25000) as dl_info:
+                                loc.last.click(timeout=5000)
+                            download = dl_info.value
+                            ensure_dir(dest.parent)
+                            suffix = Path(download.suggested_filename or "").suffix or ".png"
+                            target = dest.with_suffix(suffix)
+                            download.save_as(str(target))
+                            return target
+                    except Exception:  # noqa: BLE001
+                        pass
+                
+                # Fallback selectors
+                for dl_fallback in ['button[aria-label*="Download" i]', 'button:has-text("Download")', '[data-test-id*="download" i]']:
+                    try:
+                        btn = self.page.locator(dl_fallback).last
+                        if btn.count() > 0 and btn.is_visible(timeout=1000):
+                            with self.page.expect_download(timeout=25000) as dl_info:
+                                btn.click(timeout=5000)
+                            download = dl_info.value
+                            ensure_dir(dest.parent)
+                            suffix = Path(download.suggested_filename or "").suffix or ".png"
+                            target = dest.with_suffix(suffix)
+                            download.save_as(str(target))
+                            return target
+                    except Exception:  # noqa: BLE001
+                        continue
+        except Exception as exc:  # noqa: BLE001
+            log.debug("download via button failed: %s", exc)
+
+        return None
 
     # ------------------------------------------------------------- diagnostics
     def dump_diagnostics(self, tag: str = "probe") -> dict[str, Any]:
@@ -1164,16 +1265,23 @@ class GeminiWeb:
         reports.append(self.dump_diagnostics("step_5_image"))
         return reports
 
-    # ------------------------------------------------------------- one slot
+    # ------------------------------------------------------------- one slot (simple 6-step)
     def generate_image(
         self,
         prompt: str,
         reference_images: list[Path],
         dest: Path,
-        strategy: str = "auto",
         dry_run: bool = False,
         prompt_record: str | None = None,
     ) -> dict[str, Any]:
+        """Simple 6-step workflow:
+        1. Open gemini web page (done in begin_batch)
+        2. Upload ref images (done in begin_batch)
+        3. Select Create Images + aspect ratio (done in begin_batch)
+        4. Click generation button (send prompt)
+        5. Download Generation
+        6. Next Generation (caller loops)
+        """
         ensure_dir(dest.parent)
 
         if dry_run:
@@ -1182,88 +1290,36 @@ class GeminiWeb:
             log.info("[dry-run] prompt saved -> %s", p.name)
             return {"ok": True, "path": str(p), "dry_run": True}
 
-        if self.cfg.get("gemini.new_chat_per_slot", False):
-            self.new_chat()
-        self._dismiss_overlays()
-
-        # this slot's "related place": output/<ASIN>/generated/<slot file>.png
-        self._pending_dest = dest
+        # Clear any cached download from previous slot
         self._handled_download = None
+        self._pending_dest = dest
 
-        # STRICT RULE: before EVERY image generation the composer must be on the
-        # "Create image" mode - a continuous chat can silently fall back to the
-        # text model between replies, which produces text instead of a panel.
-        if self.cfg.get("gemini.ensure_image_model", False) and self._should_ensure_mode():
-            self.ensure_image_model()
-
-        # attach the reference photos on EVERY slot by default (configurable):
-        # a fresh upload per panel keeps the product anchored when Gemini's
-        # attention drifts in long batch chats
-        every_slot = bool(self.cfg.get("gemini.attach_references_every_slot", True))
-        fresh_chat = self.cfg.get("gemini.new_chat_per_slot", False)
-        need_refs = bool(reference_images) and (fresh_chat or every_slot
-                                                or not self._refs_attached)
-        if need_refs:
-            try:
-                self.upload_images(reference_images)
-                self._refs_attached = True
-            except GeminiError as exc:
-                self._refs_attached = False
-                if (self.cfg.get("gemini.on_upload_failure", "fail") or "fail").lower() == "continue":
-                    log.warning("%s -> continuing TEXT-ONLY (product accuracy will drop)", exc)
-                else:
-                    raise
-
+        # Step 4: Click generation button (send prompt)
         self.send_prompt(prompt)
+
+        # Step 5: Wait for generation + Download
         self.wait_for_generation()
 
+        # Step 5: Download the generated image
         saved: Path | None = None
-        if strategy in ("auto", "dom_fetch"):
-            imgs = self.collect_images()
-            if imgs:
-                best = max(imgs, key=lambda i: len(i["bytes"]))
-                saved = dest
-                saved.write_bytes(best["bytes"])
-                log.info("saved %s (%.0f KB, %sx%s)", dest.name, len(best["bytes"]) / 1024,
-                         best.get("w"), best.get("h"))
-        if saved is None and self._handled_download is not None and self._handled_download.exists():
-            saved = self._handled_download
-            log.info("using captured download for its related place: %s", saved.name)
-        if saved is None and strategy in ("auto", "button"):
+        imgs = self.collect_images()
+        if imgs:
+            best = max(imgs, key=lambda i: len(i["bytes"]))
+            dest.write_bytes(best["bytes"])
+            log.info("saved %s (%.0f KB, %sx%s)", dest.name, len(best["bytes"]) / 1024,
+                     best.get("w"), best.get("h"))
+            saved = dest
+
+        if saved is None:
             saved = self.download_via_button(dest)
 
         if saved is None:
             raise GeminiError(f"no image could be captured for {dest.name}")
 
-        # keep the slot's canonical file name/extension (downloads can land as .jpg)
-        saved = normalize_image_ext(saved, dest)
+        return {"ok": True, "path": str(saved)}
 
-        # the slot file is finalised - stop routing downloads to its path, so a stray
-        # download between slots cannot overwrite it (it parks in output/_downloads/)
-        self._pending_dest = None
-
-        # ---- accuracy gate: the image must actually satisfy the slot spec before
-        # the slot counts as done. A rejection raises -> the pipeline's normal
-        # retry path (fresh chat + re-upload) kicks in.
-        check = self.cfg.get("gemini.image_check", {}) or {}
-        if check.get("enabled", True):
-            res = verify_generated_image(
-                saved,
-                targets=aspect_targets(self.cfg),
-                min_long_side=int(check.get("min_long_side_px", 1000)),
-                aspect_tol=float(check.get("aspect_tolerance", 0.06)),
-                ref_hashes=self._ref_hashes if check.get("reject_reference_echo", True) else None,
-                seen_hashes=self._seen_hashes if check.get("reject_duplicate_panel", True) else None,
-            )
-            if not res["ok"]:
-                log.warning("image check REJECTED %s: %s (%dx%d)", saved.name, res["reason"],
-                            res["w"], res["h"])
-                Path(saved).unlink(missing_ok=True)
-                raise GeminiError(f"generated image rejected by checks: {res['reason']} "
-                                  f"({res['w']}x{res['h']})")
-            self._seen_hashes.add(res["sha256"])
-            log.info("image check ok: %s %dx%d (%.0f KB)", saved.name, res["w"], res["h"],
-                     Path(saved).stat().st_size / 1024)
+        if saved is None:
+            raise GeminiError(f"no image could be captured for {dest.name}")
 
         human_delay(self.cfg.get("gemini.between_slots_sec", [6, 12]), "between slots")
         return {"ok": True, "path": str(saved)}

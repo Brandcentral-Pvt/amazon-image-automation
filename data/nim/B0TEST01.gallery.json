@@ -1,0 +1,49 @@
+{
+  "gallery_version": 4,
+  "source_md5": "7d183ad78fee906f44b59fb828d9ddac",
+  "model_line": "A Gen-Z Indian fair-skinned female model with captivating expressive eyes and gorgeous long dark hair stands square to the camera, feet shoulder-width apart, looking directly at the lens with a neutral expression. She is wearing the exact apparel shown in the attached reference image. Professional fashion campaign photography, realistic fabric details, ultra-sharp focus on the garment, photorealistic, single model only.\"",
+  "bodies": {
+    "01_hero_white": {
+      "body": "MODEL DIRECTION (session persona, LOCKED): A Gen-Z Indian fair-skinned female model with captivating expressive eyes and gorgeous long dark hair stands square to the camera, feet shoulder-width apart, looking directly at the lens with a neutral expression. She is wearing the exact apparel shown in the attached reference image. Professional fashion campaign photography, realistic fabric details, ultra-sharp focus on the garment, photorealistic, single model only.\" The product stays the hero. Ultra-realistic, full-body portrait of the freshly cast session model, captured mid-step as he walks out through the glass doors of a modern café. His body is slightly angled forward, with one leg stepping ahead naturally, conveying motion. He holds a takeaway coffee cup in his left hand close to his chest, while his right hand rests casually inside his pocket. A black backpack hangs effortlessly over one shoulder. His head is turned slightly to the side, gaze directed away from the camera, with a calm, confident, and composed expression. He is dressed in an oversized red t-test product, black test product test product, black-and-white sneakers, and a minimal thin chain necklace, styled in a contemporary urban test product aesthetic. The background features glass doors with visible Starbucks signage and logo, with warm indoor lighting spilling outward. The café interior appears softly blurred, creating depth, while natural daylight illuminates the subject from outside. Shot with a 50mm lens, shallow depth of field, cinematic composition, realistic lighting and shadows, high dynamic range, and ultra-detailed textures. Aspect ratio: 3:4 Resolution: 8K Style: photorealistic, cinematic, editorial test product photography",
+      "title": "Urban Cafe Walk: Full-Body Portrait with Coffee",
+      "category": "MEN",
+      "ref": "MEN#1"
+    },
+    "02_back_view": {
+      "body": "MODEL DIRECTION (session persona, LOCKED): A Gen-Z Indian fair-skinned female model with captivating expressive eyes and gorgeous long dark hair stands square to the camera, feet shoulder-width apart, looking directly at the lens with a neutral expression. She is wearing the exact apparel shown in the attached reference image. Professional fashion campaign photography, realistic fabric details, ultra-sharp focus on the garment, photorealistic, single model only.\" The product stays the hero. Generate a high-resolution 8k photorealistic portrait in a 1600x1920 aspect ratio. Constraint: Maintain 100% integrity of the model, test product, patterns, textures, and colors from the reference image without any modifications. Pose: The camera is positioned directly behind the model, capturing a clean, symmetrical rear view of the test product from the shoulders down to the thighs. Her body faces completely away from the camera, and her head is turned to the left profile, looking off-camera.",
+      "title": "Pose 6 (Direct Back View",
+      "category": "WOMEN",
+      "ref": "WOMEN#2"
+    },
+    "03_side_view": {
+      "body": "MODEL DIRECTION (session persona, LOCKED): A Gen-Z Indian fair-skinned female model with captivating expressive eyes and gorgeous long dark hair stands square to the camera, feet shoulder-width apart, looking directly at the lens with a neutral expression. She is wearing the exact apparel shown in the attached reference image. Professional fashion campaign photography, realistic fabric details, ultra-sharp focus on the garment, photorealistic, single model only.\" The product stays the hero. Generate an 8k photorealistic portrait, 1600x1920, Medium Shot. Constraint: Maintain 100% test product integrity exactly, ensuring the men's test product is neatly tucked in and he is wearing a black belt. Pose: Facing forward, looking down at right wrist, right arm raised slightly across torso, left arm relaxed at side.",
+      "title": "Wrist Check",
+      "category": "MEN",
+      "ref": "MEN#7"
+    },
+    "05_lifestyle": {
+      "body": "MODEL DIRECTION (session persona, LOCKED): A Gen-Z Indian fair-skinned female model with captivating expressive eyes and gorgeous long dark hair stands square to the camera, feet shoulder-width apart, looking directly at the lens with a neutral expression. She is wearing the exact apparel shown in the attached reference image. Professional fashion campaign photography, realistic fabric details, ultra-sharp focus on the garment, photorealistic, single model only.\" The product stays the hero. Generate a high-resolution 8k photorealistic portrait in a 1600x1920 aspect ratio. Constraint: Maintain 100% integrity of the model, test product, patterns, textures, and colors from the reference image without any modifications. Pose: A full-body shot capturing the model mid-stride, walking directly toward the camera. One hand is tucked into her front pocket, while the other arm extends down to hold a small handbag. The pose showcases the complete test product, footwear, and the full fall of the garments in motion.",
+      "title": "Pose 7 (Full-Length, Walking Action",
+      "category": "WOMEN",
+      "ref": "WOMEN#1"
+    },
+    "06_styling_lookbook": {
+      "body": "MODEL DIRECTION (session persona, LOCKED): A Gen-Z Indian fair-skinned female model with captivating expressive eyes and gorgeous long dark hair stands square to the camera, feet shoulder-width apart, looking directly at the lens with a neutral expression. She is wearing the exact apparel shown in the attached reference image. Professional fashion campaign photography, realistic fabric details, ultra-sharp focus on the garment, photorealistic, single model only.\" The product stays the hero. A high-resolution 8k photorealistic portrait of a female model. Constraint: Maintain the exact test product and color palette from the reference image without any alterations. Pose: The model is in a relaxed, elegant semi-reclining pose on the sofa. Her upper body is slightly turned to her right (viewer's left), with her head turned fully in profile, looking away from the camera and toward a window. Her right arm is raised, with her hand gently touching the side of her face. Her left arm rests casually along her side, holding a small object. Her legs are gracefully stretched out in front of her along the length of the sofa, leading toward the far end, with her bare foot partially visible at the edge.",
+      "title": "women seating on sofa",
+      "category": "WOMEN",
+      "ref": "WOMEN#15"
+    },
+    "07_usp_infographic": {
+      "body": "MODEL DIRECTION (session persona, LOCKED): A Gen-Z Indian fair-skinned female model with captivating expressive eyes and gorgeous long dark hair stands square to the camera, feet shoulder-width apart, looking directly at the lens with a neutral expression. She is wearing the exact apparel shown in the attached reference image. Professional fashion campaign photography, realistic fabric details, ultra-sharp focus on the garment, photorealistic, single model only.\" The product stays the hero. A high-resolution 8K UHD upscale that maintains absolute fidelity to the original image, preserving the exact same composition, color palette, and background elements without any alterations. Enhance the overall quality by fixing facial symmetry, delivering highly detailed eyes and sharp skin texture, and completely removing digital artifacts through a clean denoise. Apply crisp, sharp focus and a subtle refinement of the existing cinematic lighting, ensuring a photorealistic, masterpiece-quality result that adds intricate detail while keeping the underlying structure entirely unchanged.",
+      "title": "Upscaleing prompt",
+      "category": "MEN",
+      "ref": "MEN#11"
+    },
+    "08_product_guide": {
+      "body": "MODEL DIRECTION (session persona, LOCKED): A Gen-Z Indian fair-skinned female model with captivating expressive eyes and gorgeous long dark hair stands square to the camera, feet shoulder-width apart, looking directly at the lens with a neutral expression. She is wearing the exact apparel shown in the attached reference image. Professional fashion campaign photography, realistic fabric details, ultra-sharp focus on the garment, photorealistic, single model only.\" The product stays the hero. Generate a high-resolution 8k photorealistic macro shot in a 1600x1920 aspect ratio. Constraint: Exact test product match required; do not modify patterns, embroidery, or colors. Pose: A close-up view focusing exclusively on the chest, neck, and shoulder area. The face is not visible in the frame. This shot focuses on the intricate embroidery and texture of the neckline and upper bodice, ensuring the fabric detail is the primary subject.",
+      "title": "Macro View: The Neckline & Detail Focus",
+      "category": "WOMEN",
+      "ref": "WOMEN#17"
+    }
+  }
+}
