@@ -7,6 +7,8 @@ on:
       - 'src/chatgpt_probe.py'
       - 'run.py'
       - 'src/browser.py'
+      - 'config.example.yaml'
+      - 'tests/test_gemini_profile.py'
       - 'src/config.py'
       - 'src/pipeline.py'
       - 'tests/test_chatgpt_workflow.py'
@@ -29,3 +31,5 @@ jobs:
         run: python -m py_compile src/chatgpt_web.py src/chatgpt_probe.py src/browser.py src/pipeline.py src/config.py run.py
       - name: Test ChatGPT validation
         run: python -m unittest discover -s tests -p 'test_chatgpt_*.py' -v
+      - name: Test Gemini profile and default provider
+        run: python -m unittest discover -s tests -p 'test_gemini_profile.py' -v
