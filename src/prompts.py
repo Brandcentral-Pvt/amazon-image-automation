@@ -17,7 +17,7 @@ import yaml
 from . import prompt_gallery
 from .config import Config
 from .models import ProductData, SlotSpec
-from .nim_client import local_casting
+from .nim_client import nim_analyse  # noqa: F401  (re-exported for callers/tests)
 from .utils import log, write_json
 
 _PLACEHOLDER = re.compile(r"\{(\w+)\}")
@@ -57,8 +57,13 @@ def load_studio(cfg: Config) -> tuple[list[SlotSpec], str] | None:
 
 # ------------------------------------------------------------- casting bridge
 def resolve_casting(product: ProductData, cfg: Config, extra_notes: str) -> dict[str, Any]:
-    """Local casting only (NIM disabled)."""
-    return local_casting(product)
+    """NIM casting when nim.enabled (+ key) is configured, local heuristic otherwise.
+
+    nim_analyse() checks nim.enabled itself and falls back to local_casting() on
+    any NIM failure (and raises before any network call when no key is set), so
+    a missing key or an outage can never block prompt building.
+    """
+    return nim_analyse(product, cfg, extra_notes)
 
 
 # ------------------------------------------------------------- master message
