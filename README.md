@@ -1,3 +1,39 @@
+## Existing Chrome connection for Gemini
+
+The default Gemini browser mode is `existing`. It **only attaches** to a running
+Chrome instance exposing a local Chrome DevTools Protocol endpoint. It does not
+launch a new Chrome process, copy browser profiles, or prompt for a new login.
+
+Relevant settings in `config.yaml`:
+
+```yaml
+generation:
+  provider: gemini
+gemini:
+  browser_mode: existing
+  cdp_url: "http://127.0.0.1:9222"
+```
+
+Test that your *existing* Chrome instance actually exposes that endpoint:
+
+```powershell
+Invoke-RestMethod http://127.0.0.1:9222/json/version
+```
+
+If this command fails, the automation will fail clearly without launching Chrome.
+A normally launched Chrome window does **not** automatically expose this endpoint.
+Since Chrome 136, Chrome ignores remote-debugging-port options targeting its
+standard default User Data directory. The default signed-in `Profile 2` cannot
+simply be attached this way after launch. An authorized Chrome session started
+with a nonstandard user-data directory and CDP enabled is needed for this
+Playwright attachment method. Keep the debugging service bound to loopback
+and never expose it on a public network.
+
+If you explicitly opt into a **separate** automation Chrome profile instead,
+set `gemini.browser_mode: isolated`. This launches a separate Chrome window
+and is *not* equivalent to attaching to an already-running personal session.
+
+
 # Amazon ASIN → 8-Image Compliant Bundle (Playwright + Gemini web)
 
 Give it ASINs. Get back, per ASIN: scraped product data, every base image from the
