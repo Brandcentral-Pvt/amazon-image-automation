@@ -59,7 +59,12 @@ gemini:
   #   python run.py probe --url https://gemini.google.com/images --steps --interactive
   url: "https://gemini.google.com/images"
   # ---- use your OWN signed-in Chrome profile (no separate sign-in screen, ever) ----
-  use_own_chrome_profile: true
+  browser_mode: existing       # Attach to an already-running Chrome; never launch another
+  cdp_url: "http://127.0.0.1:9222"  # Only works when existing Chrome explicitly exposes CDP
+  # Chrome 136+ does not enable CDP with the standard default Chrome User Data directory.
+  # If your normal Profile 2 has no CDP endpoint, this mode fails without opening a browser.
+  # Set browser_mode: isolated only if you explicitly want a separate automation window.
+  use_own_chrome_profile: true  # Used only when browser_mode: isolated
   chrome_profile_name: "Profile 2"   # Verified Chrome profile folder on this Windows machine
   chrome_channel: "chrome"           # real Chrome uses the selected profile copy
   chrome_executable_path: 'C:\Program Files\Google\Chrome\Application\chrome.exe'

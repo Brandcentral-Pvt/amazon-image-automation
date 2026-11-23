@@ -371,12 +371,54 @@ def ensure_gemini_profile(cfg: Config) -> tuple[Path, str] | None:
 # Gemini: real Chrome with the configured signed-in profile
 # ---------------------------------------------------------------------
 
+def _gemini_cdp_endpoint(cfg: Config) -> str:
+    """Only attach to a pre-existing local Chrome debugging endpoint."""
+    from urllib.parse import urlsplit
+
+    endpoint = str(cfg.get("gemini.cdp_url") or cfg.get("browser.cdp_url") or "").strip()
+    if not endpoint:
+        raise RuntimeError(
+            "Gemini existing-Chrome mode requires gemini.cdp_url, for example "
+            "http://127.0.0.1:9222. The already running Chrome must expose CDP. "
+            "Chrome 136+ does not enable debugging for the default User Data directory."
+        )
+    parsed = urlsplit(endpoint)
+    if (parsed.scheme != "http" or parsed.hostname not in ("127.0.0.1", "localhost", "::1")
+            or parsed.username or parsed.password or not parsed.port
+            or parsed.path not in ("", "/") or parsed.query or parsed.fragment):
+        raise ValueError(
+            "Gemini CDP endpoint must be a loopback HTTP URL with a port, "
+            "for example http://127.0.0.1:9222"
+        )
+    return endpoint
+
+
 def launch_gemini_context(pw, cfg: Config, headless: bool = True):
     """Launch Gemini in an isolated copy of the selected Chrome profile.
 
     The profile's display name (e.g. 'Chirag') is resolved to its real folder
     (e.g. 'Profile 2'). Never silently fall back to a different Chrome account.
     """
+    mode = str(cfg.get("gemini.browser_mode", "existing")).strip().lower()
+    if mode == "existing":
+        endpoint = _gemini_cdp_endpoint(cfg)
+        try:
+            browser = pw.chromium.connect_over_cdp(endpoint, timeout=10000)
+        except Exception as exc:
+            raise RuntimeError(
+                f"Unable to attach to existing Chrome at {endpoint}. "
+                "No new Chrome was launched. Open Chrome with an authorized "
+                "debugging connection enabled, or choose gemini.browser_mode: isolated "
+                "to explicitly use a separate automation profile."
+            ) from exc
+        if not browser.contexts:
+            browser.close()
+            raise RuntimeError("Existing Chrome has no usable browser context.")
+        log.info("Attached to existing running Chrome at %s; no browser launched", endpoint)
+        return browser.contexts[0], browser
+    if mode != "isolated":
+        raise ValueError(f"Unknown gemini.browser_mode: {mode!r}; use existing or isolated")
+
     prepared = ensure_gemini_profile(cfg)
     if prepared is None:
         return launch_context(pw, cfg, headless=headless)

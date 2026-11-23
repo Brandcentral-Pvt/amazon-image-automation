@@ -307,8 +307,13 @@ class GeminiWeb:
         from .browser import launch_gemini_context
 
         self._pw = sync_playwright().start()
-        self._ctx, _ = launch_gemini_context(self._pw, self.cfg, headless=self.headless)
-        self.page = self._ctx.pages[0] if self._ctx.pages else self._ctx.new_page()
+        self._ctx, self._attached_browser = launch_gemini_context(self._pw, self.cfg, headless=self.headless)
+        # Reuse an existing Gemini tab if present. Otherwise create a tab in
+        # the existing browser, never hijack an unrelated user tab.
+        self.page = next(
+            (page for page in self._ctx.pages if "gemini.google.com" in (page.url or "")),
+            None,
+        ) or self._ctx.new_page()
 
         # KEY FIX: intercept any native file chooser Gemini opens, from any frame
         self.page.on("filechooser", self._on_filechooser)
@@ -325,8 +330,10 @@ class GeminiWeb:
 
     def close(self) -> None:
         try:
-            if self._ctx:
+            if self._ctx and not getattr(self, "_attached_browser", None):
                 self._ctx.close()
+            # In attached mode leave the user's Chrome context and tabs open.
+            # Stopping Playwright below detaches the CDP connection.
         finally:
             if self._pw:
                 self._pw.stop()
