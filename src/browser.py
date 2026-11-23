@@ -354,6 +354,50 @@ def ensure_gemini_profile(cfg: Config) -> tuple[Path, str] | None:
 
 
 # ---------------------------------------------------------------------
+# Gemini: real Chrome with the configured signed-in profile
+# ---------------------------------------------------------------------
+
+def launch_gemini_context(pw, cfg: Config, headless: bool = True):
+    """Launch Gemini in an isolated copy of the selected Chrome profile.
+
+    The profile's display name (e.g. 'Chirag') is resolved to its real folder
+    (e.g. 'Profile 2'). Never silently fall back to a different Chrome account.
+    """
+    prepared = ensure_gemini_profile(cfg)
+    if prepared is None:
+        return launch_context(pw, cfg, headless=headless)
+
+    dest, folder = prepared
+    channel = cfg.get("gemini.chrome_channel") or "chrome"
+    args = [
+        f"--profile-directory={folder}",
+        "--disable-features=Translate,OptimizationHints,MediaRouter",
+    ]
+    args.extend(list(cfg.get("browser.extra_args", []) or []))
+
+    kwargs: dict[str, Any] = {
+        "headless": headless,
+        "viewport": cfg.get("browser.viewport", {"width": 1440, "height": 900}),
+        "locale": cfg.get("browser.locale", "en-US"),
+        "args": args,
+    }
+    if cfg.get("browser.user_agent"):
+        kwargs["user_agent"] = cfg.get("browser.user_agent")
+    if cfg.get("browser.proxy"):
+        kwargs["proxy"] = {"server": cfg.get("browser.proxy")}
+    executable = cfg.get("gemini.chrome_executable_path")
+    if executable:
+        kwargs["executable_path"] = executable
+    else:
+        kwargs["channel"] = channel
+
+    log.info("Gemini Chrome profile: %s (folder %s), isolated at %s", 
+             cfg.get("gemini.chrome_profile_name"), folder, dest)
+    ctx = pw.chromium.launch_persistent_context(str(dest), **kwargs)
+    return ctx, None
+
+
+# ---------------------------------------------------------------------
 # chatgpt: own Chrome profile
 # ----------------------------------------------------------------------
 
