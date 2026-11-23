@@ -27,14 +27,16 @@ class GeminiProfileTests(unittest.TestCase):
         cfg = load_config(str(Path(__file__).resolve().parent.parent / "config.example.yaml"))
         self.assertEqual(cfg.get("generation.provider"), "gemini")
         self.assertTrue(cfg.get("gemini.use_own_chrome_profile"))
-        self.assertEqual(cfg.get("gemini.chrome_profile_name"), "Chirag")
+        self.assertEqual(cfg.get("gemini.chrome_profile_name"), "Profile 2")
+        self.assertEqual(cfg.get("gemini.chrome_executable_path"), r"C:\Program Files\Google\Chrome\Application\chrome.exe")
+        self.assertEqual(cfg.get("gemini.chrome_user_data_dir"), r"C:\Users\Admin\AppData\Local\Google\Chrome\User Data")
         self.assertEqual(cfg.get("gemini.chrome_channel"), "chrome")
 
     @patch("src.browser.ensure_gemini_profile")
     def test_uses_resolved_profile_folder_not_display_name(self, ensure):
         ensure.return_value = (Path("C:/isolated-gemini"), "Profile 2")
         cfg = Config({"browser": {"viewport": {"width": 1440, "height": 900}},
-                      "gemini": {"chrome_profile_name": "Chirag",
+                      "gemini": {"chrome_profile_name": "Profile 2",
                                  "chrome_channel": "chrome"}})
         pw = FakePlaywright()
         context, browser = launch_gemini_context(pw, cfg, headless=False)
